@@ -1,25 +1,23 @@
-import { jwtVerify, SignJWT } from "jose"
+import { betterAuth } from "better-auth"
+import { drizzleAdapter } from "better-auth/adapters/drizzle"
+import { db } from "@/lib/db"
+import { account, session, user, verification } from "@/lib/db/schema"
 
-const secret = new TextEncoder().encode(process.env.JWT_SECRET ?? "")
-
-export interface TokenPayload {
-    id: number
-    email: string
-    role: "client" | "admin"
-}
-
-export async function signToken(payload: TokenPayload) {
-    return new SignJWT(payload)
-        .setProtectedHeader({ alg: "HS256" })
-        .setIssuedAt()
-        .setExpirationTime("24h")
-        .sign(secret)
-}
-
-export async function verifyToken(token: string) {
-    const { payload } = await jwtVerify(token, secret)
-    return payload as unknown as TokenPayload & {
-        iat: number
-        exp: number
-    }
-}
+export const auth = betterAuth({
+    database: drizzleAdapter(db, {
+        provider: "pg",
+        schema: { user, session, account, verification },
+    }),
+    emailAndPassword: {
+        enabled: true,
+    },
+    user: {
+        additionalFields: {
+            role: {
+                type: ["client", "admin"],
+                defaultValue: "client",
+                input: false,
+            },
+        },
+    },
+})
