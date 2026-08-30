@@ -12,11 +12,8 @@ import { getCurrentUser } from "@/lib/session"
 
 export async function GET(request: Request) {
     const user = await getCurrentUser()
-    if (!user) {
-        return NextResponse.json({ message: "Unauthorized" }, { status: 401 })
-    }
+    const isAdmin = user?.role === "admin"
 
-    const isAdmin = user.role === "admin"
     const dateParam = new URL(request.url).searchParams.get("date")
     const date =
         isAdmin && isValidDateKey(dateParam) ? dateParam : toDateKey(new Date())
@@ -53,11 +50,6 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-    const user = await getCurrentUser()
-    if (!user) {
-        return NextResponse.json({ message: "Unauthorized" }, { status: 401 })
-    }
-
     const body = await request.json().catch(() => null)
     if (!body) {
         return NextResponse.json(
@@ -98,29 +90,6 @@ export async function POST(request: Request) {
         )
     }
 
-    const existingActive = await db
-        .select({ id: antrian.id })
-        .from(antrian)
-        .where(
-            and(
-                eq(antrian.userId, user.id),
-                eq(antrian.tanggal, tanggal),
-                eq(antrian.status, "waiting"),
-            ),
-        )
-        .limit(1)
-        .then((rows) => rows[0])
-
-    if (existingActive) {
-        return NextResponse.json(
-            {
-                message:
-                    "Anda sudah memiliki antrian aktif pada tanggal tersebut",
-            },
-            { status: 409 },
-        )
-    }
-
     const lastNumber = await db
         .select({
             maxNomor: sql<number>`coalesce(max(${antrian.nomorAntri}), 0)`,
@@ -137,7 +106,6 @@ export async function POST(request: Request) {
     const newAntrian = await db
         .insert(antrian)
         .values({
-            userId: user.id,
             jenisLayanan,
             nomorAntri: (lastNumber?.maxNomor ?? 0) + 1,
             tanggal,

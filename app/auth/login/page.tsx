@@ -27,7 +27,7 @@ export default function LoginPage() {
         setLoading(true)
 
         try {
-            const { data, error: signInError } = await authClient.signIn.email({
+            const { error: signInError } = await authClient.signIn.email({
                 email,
                 password,
             })
@@ -37,11 +37,7 @@ export default function LoginPage() {
                 return
             }
 
-            window.location.assign(
-                data?.user.role === "admin"
-                    ? "/admin/dashboard"
-                    : "/client/dashboard",
-            )
+            window.location.assign("/admin/dashboard")
         } catch {
             setError("Terjadi kesalahan, coba lagi")
         } finally {

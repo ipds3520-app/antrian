@@ -3,6 +3,7 @@
 import { LogOut } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useEffect } from "react"
+import { ThemeToggle } from "@/components/theme-toggle"
 import { Button } from "@/components/ui/button"
 import { authClient } from "@/lib/auth-client"
 
@@ -21,10 +22,8 @@ export default function AdminLayout({
 
     useEffect(() => {
         if (isPending) return
-        if (!session) {
+        if (!session || session.user.role !== "admin") {
             router.push("/auth/login")
-        } else if (session.user.role !== "admin") {
-            router.push("/client/dashboard")
         }
     }, [isPending, session, router])
 
@@ -46,6 +45,7 @@ export default function AdminLayout({
                 <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
                     <h1 className="text-lg font-semibold">Antrian Admin</h1>
                     <div className="flex items-center gap-3">
+                        <ThemeToggle />
                         <span className="text-sm text-muted-foreground">
                             {session.user.name}
                         </span>

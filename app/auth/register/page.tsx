@@ -39,7 +39,7 @@ export default function RegisterPage() {
                 return
             }
 
-            window.location.assign("/client/dashboard")
+            window.location.assign("/auth/login")
         } catch {
             setError("Terjadi kesalahan, coba lagi")
         } finally {

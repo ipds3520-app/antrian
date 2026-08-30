@@ -14,8 +14,8 @@ export const user = p.pgTable("user", {
         .$onUpdate(() => new Date())
         .notNull(),
     role: p
-        .text("role", { enum: ["client", "admin"] })
-        .default("client")
+        .text("role", { enum: ["admin"] })
+        .default("admin")
         .notNull(),
 })
 
@@ -93,7 +93,7 @@ export const antrian = p.pgTable(
     "antrian",
     {
         id: p.serial("id").primaryKey(),
-        userId: p.text("user_id").notNull(),
+        userId: p.text("user_id"),
         jenisLayanan: p.text("jenis_layanan").notNull(),
         nomorAntri: p.integer("nomor_antri").notNull(),
         tanggal: p.date("tanggal").notNull(),

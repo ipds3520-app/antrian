@@ -14,11 +14,7 @@ export default function HomePage() {
             router.push("/auth/login")
             return
         }
-        if (session.user.role === "admin") {
-            router.push("/admin/dashboard")
-        } else {
-            router.push("/client/dashboard")
-        }
+        router.push("/admin/dashboard")
     }, [session, isPending, router])
 
     return null
