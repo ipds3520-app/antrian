@@ -1,66 +1,27 @@
-"use client"
+import { redirect } from "next/navigation"
+import { AppHeader } from "@/components/app-header"
+import { getCurrentUser } from "@/lib/session"
 
-import { LogOut } from "lucide-react"
-import { useRouter } from "next/navigation"
-import { useEffect } from "react"
-import { ThemeToggle } from "@/components/theme-toggle"
-import { Button } from "@/components/ui/button"
-import { authClient } from "@/lib/auth-client"
-
-export default function AdminLayout({
+export default async function AdminLayout({
     children,
 }: {
     children: React.ReactNode
 }) {
-    const { data: session, isPending } = authClient.useSession()
-    const router = useRouter()
+    const user = await getCurrentUser()
 
-    async function handleSignOut() {
-        await authClient.signOut()
-        window.location.assign("/auth/login")
-    }
-
-    useEffect(() => {
-        if (isPending) return
-        if (!session || session.user.role !== "admin") {
-            router.push("/auth/login")
-        }
-    }, [isPending, session, router])
-
-    if (isPending) {
-        return (
-            <div className="flex min-h-screen items-center justify-center">
-                <p className="text-muted-foreground">Memuat...</p>
-            </div>
-        )
-    }
-
-    if (!session || session.user.role !== "admin") {
-        return null
-    }
+    if (!user) redirect("/auth/admin")
+    if (user.role !== "admin") redirect("/user")
 
     return (
-        <div className="min-h-screen flex flex-col">
-            <header className="border-b bg-background">
-                <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
-                    <h1 className="text-lg font-semibold">Antrian Admin</h1>
-                    <div className="flex items-center gap-3">
-                        <ThemeToggle />
-                        <span className="text-sm text-muted-foreground">
-                            {session.user.name}
-                        </span>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={handleSignOut}
-                        >
-                            <LogOut className="h-4 w-4" />
-                            Keluar
-                        </Button>
-                    </div>
-                </div>
-            </header>
-            <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">
+        <div className="flex min-h-screen flex-col">
+            <AppHeader
+                title="Antrian Admin"
+                subtitle="Kelola seluruh appointment"
+                userName={user.name}
+                homeHref="/admin/dashboard"
+                logoutTo="/auth/admin"
+            />
+            <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
                 {children}
             </main>
         </div>

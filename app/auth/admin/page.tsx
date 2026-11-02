@@ -1,5 +1,6 @@
 "use client"
 
+import { LogIn } from "lucide-react"
 import Link from "next/link"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -13,35 +14,28 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { authClient } from "@/lib/auth-client"
+import { apiRequest, handleApiError } from "@/lib/http"
 
-export default function RegisterPage() {
-    const [name, setName] = useState("")
+export default function AdminLoginPage() {
     const [email, setEmail] = useState("")
     const [password, setPassword] = useState("")
     const [error, setError] = useState("")
     const [loading, setLoading] = useState(false)
 
-    async function handleSubmit(e: React.FormEvent) {
-        e.preventDefault()
+    async function handleSubmit(event: React.FormEvent) {
+        event.preventDefault()
         setError("")
         setLoading(true)
 
         try {
-            const { error: signUpError } = await authClient.signUp.email({
-                name,
-                email,
-                password,
+            await apiRequest("/api/admin/auth/login", {
+                method: "POST",
+                body: JSON.stringify({ email, password }),
             })
 
-            if (signUpError) {
-                setError(signUpError.message ?? "Pendaftaran gagal")
-                return
-            }
-
-            window.location.assign("/auth/login")
-        } catch {
-            setError("Terjadi kesalahan, coba lagi")
+            window.location.assign("/admin/dashboard")
+        } catch (error) {
+            setError(handleApiError(error))
         } finally {
             setLoading(false)
         }
@@ -50,9 +44,9 @@ export default function RegisterPage() {
     return (
         <Card>
             <CardHeader className="text-center">
-                <CardTitle className="text-2xl">Daftar</CardTitle>
+                <CardTitle className="text-2xl">Masuk Admin</CardTitle>
                 <CardDescription>
-                    Buat akun baru untuk mengambil antrian
+                    Gunakan akun admin yang terdaftar pada tabel users.
                 </CardDescription>
             </CardHeader>
             <form onSubmit={handleSubmit}>
@@ -63,51 +57,42 @@ export default function RegisterPage() {
                         </div>
                     )}
                     <div className="space-y-2">
-                        <Label htmlFor="name">Nama</Label>
+                        <Label htmlFor="admin-email">Email</Label>
                         <Input
-                            id="name"
-                            type="text"
-                            placeholder="Nama lengkap"
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            required
-                        />
-                    </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="email">Email</Label>
-                        <Input
-                            id="email"
+                            id="admin-email"
                             type="email"
-                            placeholder="email@example.com"
+                            placeholder="admin@example.com"
                             value={email}
-                            onChange={(e) => setEmail(e.target.value)}
+                            onChange={(event) => setEmail(event.target.value)}
                             required
                         />
                     </div>
                     <div className="space-y-2">
-                        <Label htmlFor="password">Password</Label>
+                        <Label htmlFor="admin-password">Password</Label>
                         <Input
-                            id="password"
+                            id="admin-password"
                             type="password"
-                            placeholder="Minimal 8 karakter"
+                            placeholder="Password admin"
                             value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            minLength={8}
+                            onChange={(event) =>
+                                setPassword(event.target.value)
+                            }
                             required
                         />
                     </div>
                 </CardContent>
                 <CardFooter className="flex flex-col gap-3">
                     <Button type="submit" className="w-full" disabled={loading}>
-                        {loading ? "Mendaftar..." : "Daftar"}
+                        <LogIn className="h-4 w-4" />
+                        {loading ? "Masuk..." : "Masuk"}
                     </Button>
                     <p className="text-center text-sm text-muted-foreground">
-                        Sudah punya akun?{" "}
+                        Pengguna?{" "}
                         <Link
                             href="/auth/login"
                             className="underline underline-offset-4"
                         >
-                            Masuk
+                            Masuk dengan email
                         </Link>
                     </p>
                 </CardFooter>
