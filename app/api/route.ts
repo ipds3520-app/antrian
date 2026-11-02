@@ -20,7 +20,7 @@ export async function GET() {
     const today = toDateKey(new Date())
 
     const { data, error } = await supabase
-        .from("appointment")
+        .from("appointments")
         .select("*")
         .eq("booked_date", today)
 

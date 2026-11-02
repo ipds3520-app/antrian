@@ -1,5 +1,3 @@
-import * as p from "drizzle-orm/pg-core"
-
 /**
  * These tables mirror the existing Supabase tables in the `public` schema.
  * Adjust the column names below if your Supabase column names differ.

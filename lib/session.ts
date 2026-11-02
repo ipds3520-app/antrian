@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto"
-import { eq, sql } from "drizzle-orm"
 import { cookies } from "next/headers"
 import {
     createSessionToken,
