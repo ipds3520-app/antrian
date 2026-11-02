@@ -1,5 +1,5 @@
-// request supabase to get all appointment on today()
-// return all appointments
+// request supabase to get all appointments on today()
+// return all appointmentss
 // return response {appointments}
 
 import { createClient } from "@supabase/supabase-js"
@@ -83,15 +83,15 @@ export async function POST(request: Request) {
     }
 
     const { data, error } = await supabase
-        .from("appointment")
+        .from("appointments")
         .insert(insertData)
         .select()
         .single()
 
     if (error) {
-        console.error("[api/root] gagal menambahkan appointment", error)
+        console.error("[api/root] gagal menambahkan appointments", error)
         return Response.json({ error: error.message }, { status: 500 })
     }
 
-    return Response.json({ appointment: data }, { status: 201 })
+    return Response.json({ appointments: data }, { status: 201 })
 }
