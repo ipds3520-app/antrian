@@ -8,6 +8,32 @@ export interface AuthUser {
     phone: string | null
 }
 
+export interface UserRow {
+    id: string
+    created_at: string | Date
+    email: string
+    name: string | null
+    role: string | null
+    password: string | null
+    phone: string | null
+}
+
+export type User = UserRow
+
+export interface AppointmentRow {
+    id: string
+    created_at: string | Date | null
+    name: string
+    email: string
+    booked_date: string
+    time: string
+    service: string
+    phone: string | null
+    queue_number: number | null
+}
+
+export type Appointment = AppointmentRow
+
 export type AppointmentStatus = "upcoming" | "expired"
 
 export interface AppointmentDto {

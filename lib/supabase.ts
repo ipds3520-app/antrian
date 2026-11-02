@@ -24,8 +24,8 @@ function readSupabaseEnv(): { url: string; key: string } {
 }
 
 /**
- * Server-side Supabase client used only for Auth (sending magic links and
- * verifying the token hash from the email). It never persists a session.
+ * Server-side Supabase client used for Auth and database operations.
+ * Operates using publishable/anon key without bypassing RLS.
  */
 export function createSupabaseAuthClient() {
     const { url, key } = readSupabaseEnv()
@@ -38,6 +38,8 @@ export function createSupabaseAuthClient() {
         },
     })
 }
+
+export const getSupabaseClient = createSupabaseAuthClient
 
 export async function verifySupabaseOtp(
     tokenHash: string,

@@ -1,17 +1,5 @@
 import { randomUUID } from "node:crypto"
 import {
-    and,
-    count,
-    desc,
-    eq,
-    gte,
-    ilike,
-    lte,
-    or,
-    type SQL,
-    sql,
-} from "drizzle-orm"
-import {
     getNowKeys,
     isPastDateTime,
     isService,
@@ -21,9 +9,8 @@ import {
     type Service,
     serviceLabel,
 } from "@/lib/antrian"
-import { db } from "@/lib/db"
-import { appointment } from "@/lib/db/schema"
-import type { AppointmentDto } from "@/lib/types"
+import { getSupabaseClient } from "@/lib/supabase"
+import type { AppointmentDto, AppointmentRow } from "@/lib/types"
 import {
     isValidEmail,
     isValidPhone,
@@ -153,15 +140,15 @@ function normalizeDateValue(value: string | Date): string {
     return String(value).slice(0, 10)
 }
 
-export function toAppointmentDto(
-    row: typeof appointment.$inferSelect,
-): AppointmentDto {
-    const bookedDate = normalizeDateValue(row.bookedDate)
+export function toAppointmentDto(row: AppointmentRow): AppointmentDto {
+    const bookedDate = normalizeDateValue(row.booked_date)
     const time = normalizeTimeKey(String(row.time))
 
     return {
         id: row.id,
-        createdAt: row.createdAt ? row.createdAt.toISOString() : null,
+        createdAt: row.created_at
+            ? new Date(row.created_at).toISOString()
+            : null,
         name: row.name,
         email: row.email,
         phone: row.phone,
@@ -169,37 +156,33 @@ export function toAppointmentDto(
         time,
         service: row.service,
         serviceLabel: serviceLabel(row.service),
-        queueNumber: row.queueNumber,
+        queueNumber: row.queue_number,
         status: isPastDateTime(bookedDate, time) ? "expired" : "upcoming",
     }
 }
 
-type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
-
-async function lock(tx: Transaction, key: string) {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${key}))`)
-}
-
 async function nextQueueNumber(
-    tx: Transaction,
     bookedDate: string,
     service: string,
 ): Promise<number> {
-    await lock(tx, `queue:${bookedDate}:${service}`)
+    const supabase = getSupabaseClient()
+    const { data, error } = await supabase
+        .from("appointment")
+        .select("queue_number")
+        .eq("booked_date", bookedDate)
+        .eq("service", service)
+        .order("queue_number", { ascending: false })
+        .limit(1)
+        .maybeSingle()
 
-    const rows = await tx
-        .select({
-            max: sql<number>`coalesce(max(${appointment.queueNumber}), 0)`,
-        })
-        .from(appointment)
-        .where(
-            and(
-                eq(appointment.bookedDate, bookedDate),
-                eq(appointment.service, service),
-            ),
+    if (error) {
+        console.error(
+            "[supabase] gagal mendapatkan antrian berikutnya",
+            error.message,
         )
+    }
 
-    return Number(rows[0]?.max ?? 0) + 1
+    return Number(data?.queue_number ?? 0) + 1
 }
 
 function activeAppointmentExists(
@@ -220,61 +203,63 @@ export async function createAppointment(
     options: { enforceConflict?: boolean } = {},
 ): Promise<AppointmentDto> {
     const enforceConflict = options.enforceConflict ?? true
+    const supabase = getSupabaseClient()
 
-    const row = await db.transaction(async (tx) => {
-        if (enforceConflict) {
-            await lock(tx, `booking:${input.email}:${input.bookedDate}`)
+    if (enforceConflict) {
+        const { data: existing, error: existingError } = await supabase
+            .from("appointment")
+            .select("booked_date, time")
+            .ilike("email", input.email)
+            .eq("booked_date", input.bookedDate)
 
-            const existing = await tx
-                .select({
-                    bookedDate: appointment.bookedDate,
-                    time: appointment.time,
-                })
-                .from(appointment)
-                .where(
-                    and(
-                        sql`lower(${appointment.email}) = ${input.email}`,
-                        eq(appointment.bookedDate, input.bookedDate),
-                    ),
-                )
-
-            const normalized = existing.map((entry) => ({
-                bookedDate: normalizeDateValue(entry.bookedDate),
-                time: String(entry.time),
-            }))
-
-            if (activeAppointmentExists(normalized, input.bookedDate)) {
-                throw new BookingConflictError(
-                    "Anda masih memiliki appointment aktif pada tanggal tersebut",
-                )
-            }
+        if (existingError) {
+            console.error(
+                "[supabase] gagal cek konflik booking",
+                existingError.message,
+            )
         }
 
-        const queueNumber =
-            input.queueNumber ??
-            (await nextQueueNumber(tx, input.bookedDate, input.service))
+        const normalized = (existing ?? []).map((entry) => ({
+            bookedDate: normalizeDateValue(entry.booked_date),
+            time: String(entry.time),
+        }))
 
-        const inserted = await tx
-            .insert(appointment)
-            .values({
-                id: randomUUID(),
-                createdAt: new Date(),
-                name: input.name,
-                email: input.email,
-                phone: input.phone,
-                bookedDate: input.bookedDate,
-                time: input.time,
-                service: input.service,
-                queueNumber,
-            })
-            .returning()
+        if (activeAppointmentExists(normalized, input.bookedDate)) {
+            throw new BookingConflictError(
+                "Anda masih memiliki appointment aktif pada tanggal tersebut",
+            )
+        }
+    }
 
-        const created = inserted[0]
-        if (!created) throw new Error("Gagal membuat appointment")
-        return created
-    })
+    const queueNumber =
+        input.queueNumber ??
+        (await nextQueueNumber(input.bookedDate, input.service))
 
-    return toAppointmentDto(row)
+    const newRow: AppointmentRow = {
+        id: randomUUID(),
+        created_at: new Date().toISOString(),
+        name: input.name,
+        email: input.email,
+        phone: input.phone,
+        booked_date: input.bookedDate,
+        time: input.time,
+        service: input.service,
+        queue_number: queueNumber,
+    }
+
+    const { data, error } = await supabase
+        .from("appointment")
+        .insert(newRow)
+        .select()
+        .single()
+
+    if (error || !data) {
+        throw new Error(
+            `Gagal membuat appointment: ${error?.message ?? "unknown error"}`,
+        )
+    }
+
+    return toAppointmentDto(data as AppointmentRow)
 }
 
 export async function updateAppointment(
@@ -305,41 +290,41 @@ export async function updateAppointment(
     const dateChanged = parsed.value.bookedDate !== existing.bookedDate
     const serviceChanged = parsed.value.service !== existing.service
 
-    const row = await db.transaction(async (tx) => {
-        let queueNumber = parsed.value.queueNumber
-
-        if (queueNumber === undefined) {
-            if (dateChanged || serviceChanged) {
-                queueNumber = await nextQueueNumber(
-                    tx,
-                    parsed.value.bookedDate,
-                    parsed.value.service,
-                )
-            } else {
-                queueNumber = existing.queueNumber ?? undefined
-            }
+    let queueNumber = parsed.value.queueNumber
+    if (queueNumber === undefined) {
+        if (dateChanged || serviceChanged) {
+            queueNumber = await nextQueueNumber(
+                parsed.value.bookedDate,
+                parsed.value.service,
+            )
+        } else {
+            queueNumber = existing.queueNumber ?? undefined
         }
+    }
 
-        const updated = await tx
-            .update(appointment)
-            .set({
-                name: parsed.value.name,
-                email: parsed.value.email,
-                phone: parsed.value.phone,
-                bookedDate: parsed.value.bookedDate,
-                time: parsed.value.time,
-                service: parsed.value.service,
-                queueNumber,
-            })
-            .where(eq(appointment.id, id))
-            .returning()
+    const supabase = getSupabaseClient()
+    const { data, error } = await supabase
+        .from("appointment")
+        .update({
+            name: parsed.value.name,
+            email: parsed.value.email,
+            phone: parsed.value.phone,
+            booked_date: parsed.value.bookedDate,
+            time: parsed.value.time,
+            service: parsed.value.service,
+            queue_number: queueNumber ?? null,
+        })
+        .eq("id", id)
+        .select()
+        .single()
 
-        const result = updated[0]
-        if (!result) throw new Error("Gagal memperbarui appointment")
-        return result
-    })
+    if (error || !data) {
+        throw new Error(
+            `Gagal memperbarui appointment: ${error?.message ?? "unknown error"}`,
+        )
+    }
 
-    return { ok: true, value: toAppointmentDto(row) }
+    return { ok: true, value: toAppointmentDto(data as AppointmentRow) }
 }
 
 export interface AppointmentFilters {
@@ -354,58 +339,49 @@ export interface AppointmentFilters {
 }
 
 export async function listAppointments(filters: AppointmentFilters) {
-    const conditions: SQL[] = []
+    const supabase = getSupabaseClient()
+    let query = supabase.from("appointment").select("*", { count: "exact" })
 
     if (filters.email) {
-        conditions.push(
-            sql`lower(${appointment.email}) = ${normalizeEmail(filters.email)}`,
-        )
+        query = query.ilike("email", normalizeEmail(filters.email))
     }
     if (filters.date && isValidDateKey(filters.date)) {
-        conditions.push(eq(appointment.bookedDate, filters.date))
+        query = query.eq("booked_date", filters.date)
     }
     if (filters.from && isValidDateKey(filters.from)) {
-        conditions.push(gte(appointment.bookedDate, filters.from))
+        query = query.gte("booked_date", filters.from)
     }
     if (filters.to && isValidDateKey(filters.to)) {
-        conditions.push(lte(appointment.bookedDate, filters.to))
+        query = query.lte("booked_date", filters.to)
     }
     if (filters.service && isService(filters.service)) {
-        conditions.push(eq(appointment.service, filters.service))
+        query = query.eq("service", filters.service)
     }
     if (filters.q) {
-        const search = `%${filters.q.trim()}%`
-        conditions.push(
-            or(
-                ilike(appointment.name, search),
-                ilike(appointment.email, search),
-                ilike(appointment.phone, search),
-            ) as SQL,
+        const search = filters.q.trim()
+        query = query.or(
+            `name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`,
         )
     }
 
-    const where = conditions.length > 0 ? and(...conditions) : undefined
     const limit = Math.min(Math.max(1, filters.limit ?? 50), 200)
     const offset = Math.max(0, filters.offset ?? 0)
 
-    const rows = await db
-        .select()
-        .from(appointment)
-        .where(where)
-        .orderBy(
-            desc(appointment.bookedDate),
-            desc(appointment.time),
-            desc(appointment.createdAt),
-        )
-        .limit(limit)
-        .offset(offset)
+    query = query
+        .order("booked_date", { ascending: false })
+        .order("time", { ascending: false })
+        .order("created_at", { ascending: false })
+        .range(offset, offset + limit - 1)
 
-    const totalRows = await db
-        .select({ value: count() })
-        .from(appointment)
-        .where(where)
+    const { data, count, error } = await query
 
-    const total = Number(totalRows[0]?.value ?? 0)
+    if (error) {
+        console.error("[supabase] gagal list appointments", error.message)
+        throw new Error(`Gagal mengambil data appointments: ${error.message}`)
+    }
+
+    const total = count ?? 0
+    const rows = (data ?? []) as AppointmentRow[]
 
     return {
         data: rows.map(toAppointmentDto),
@@ -421,24 +397,36 @@ export async function listAppointments(filters: AppointmentFilters) {
 export async function getAppointmentById(
     id: string,
 ): Promise<AppointmentDto | null> {
-    const rows = await db
-        .select()
-        .from(appointment)
-        .where(eq(appointment.id, id))
-        .limit(1)
+    const supabase = getSupabaseClient()
+    const { data, error } = await supabase
+        .from("appointment")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle()
 
-    const row = rows[0]
-    return row ? toAppointmentDto(row) : null
+    if (error) {
+        console.error("[supabase] gagal get appointment by id", error.message)
+        return null
+    }
+
+    return data ? toAppointmentDto(data as AppointmentRow) : null
 }
 
 export async function deleteAppointment(
     id: string,
 ): Promise<AppointmentDto | null> {
-    const rows = await db
-        .delete(appointment)
-        .where(eq(appointment.id, id))
-        .returning()
+    const supabase = getSupabaseClient()
+    const { data, error } = await supabase
+        .from("appointment")
+        .delete()
+        .eq("id", id)
+        .select()
+        .maybeSingle()
 
-    const row = rows[0]
-    return row ? toAppointmentDto(row) : null
+    if (error) {
+        console.error("[supabase] gagal delete appointment", error.message)
+        return null
+    }
+
+    return data ? toAppointmentDto(data as AppointmentRow) : null
 }

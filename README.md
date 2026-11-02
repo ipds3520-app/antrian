@@ -5,14 +5,14 @@ Aplikasi antrian online dengan dua sisi terpisah:
 - **Pengguna** masuk dengan tautan email (magic link), memesan appointment, dan melihat riwayatnya.
 - **Admin** masuk dengan email + password, melihat seluruh riwayat, dan melakukan CRUD appointment.
 
-Project ini memakai **Next.js + Drizzle ORM + Supabase Postgres**. Drizzle memetakan tabel yang sudah ada di schema `public` Supabase:
+Project ini memakai **Next.js + Supabase**. Database memakai tabel yang sudah ada di schema `public` Supabase:
 
 | Tabel | Kolom yang dipakai |
 | --- | --- |
 | `users` | `id`, `created_at`, `email`, `name`, `role`, `password`, `phone` |
 | `appointment` | `id`, `created_at`, `name`, `email`, `booked_date`, `time`, `service`, `phone`, `queue_number` |
 
-> Jika nama kolom di Supabase berbeda (misalnya `queue_no`), ubah pemetaannya di `lib/db/schema.ts`.
+> Jika nama kolom di Supabase berbeda (misalnya `queue_no`), sesuaikan tipe di `lib/types.ts`.
 
 ## Menjalankan project
 
@@ -28,7 +28,6 @@ Buka `http://localhost:3000`.
 
 Isi `.env.local`:
 
-- `DATABASE_URL` — connection string Supabase Postgres. Untuk deployment serverless gunakan connection pooler (port `6543`).
 - `NEXT_PUBLIC_SUPABASE_URL` — URL project Supabase.
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` — publishable key Supabase (key `anon` juga bisa dipakai). Dipakai Supabase Auth untuk mengirim email magic link.
 - `AUTH_SECRET` — secret untuk menandatangani token sesi. Generate:
@@ -136,26 +135,26 @@ Ringkasan endpoint:
 | `POST` | `/api/admin/appointments/:id/receipt` | admin |
 
 ## Catatan database
-
-- `lib/db/schema.ts` adalah pemetaan manual ke tabel Supabase yang sudah ada. **Jangan** menjalankan `db:push` tanpa memeriksa diff terlebih dahulu karena Drizzle bisa mencoba mengubah tabel existing.
-- Migration lama yang membuat tabel `user`/`antrian` sudah dihapus karena project sekarang memakai tabel Supabase `users`/`appointment`.
-- `lib/db/index.ts` memakai `prepare: false` agar kompatibel dengan transaction pooler Supabase.
-
-## Struktur utama
-
-```
-app/
-  auth/login        # login pengguna (magic link)
-  auth/admin        # login admin
-  user              # dashboard pengguna
-  admin/dashboard   # dashboard admin
-  api/...           # API pengguna & admin
-lib/
-  db/schema.ts      # mapping tabel Supabase
-  supabase.ts       # Supabase Auth: kirim & verifikasi magic link
-  email.ts          # pengiriman magic link lewat Supabase Auth
-  auth.ts           # token sesi
-  session.ts        # user dari cookie / bearer token
-  appointments.ts   # validasi, booking, CRUD, queue number
-  whatsapp.ts       # pengiriman kuitansi
-```
+ 
+- Project memakai tabel Supabase `users` dan `appointment` di schema `public`.
+- Operasi database menggunakan `@supabase/supabase-js` dengan key publishable/anon (Row Level Security berlaku sesuai konfigurasi Supabase).
+- Tipe data row dipusatkan di `lib/types.ts`.
+ 
+ ## Struktur utama
+ 
+ ```
+ app/
+   auth/login        # login pengguna (magic link)
+   auth/admin        # login admin
+   user              # dashboard pengguna
+   admin/dashboard   # dashboard admin
+   api/...           # API pengguna & admin
+ lib/
+   supabase.ts       # Supabase client (Auth & database)
+   types.ts          # tipe DTO & schema baris database
+   email.ts          # pengiriman magic link lewat Supabase Auth
+   auth.ts           # token sesi
+   session.ts        # user dari cookie / bearer token
+   appointments.ts   # validasi, booking, CRUD, queue number
+   whatsapp.ts       # pengiriman kuitansi
+ ```

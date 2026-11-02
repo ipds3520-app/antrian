@@ -1,4 +1,3 @@
-import { eq } from "drizzle-orm"
 import { fail, ok, withUser } from "@/lib/api"
 import {
     BookingConflictError,
@@ -6,9 +5,8 @@ import {
     listAppointments,
     parseBookingInput,
 } from "@/lib/appointments"
-import { db } from "@/lib/db"
-import { users } from "@/lib/db/schema"
 import { sendAppointmentReceipt } from "@/lib/receipt"
+import { getSupabaseClient } from "@/lib/supabase"
 
 export async function GET(request: Request) {
     return withUser(request, async (user) => {
@@ -37,18 +35,21 @@ export async function POST(request: Request) {
         try {
             const appointment = await createAppointment(parsed.value)
 
-            await db
-                .update(users)
-                .set({
+            const supabase = getSupabaseClient()
+            await supabase
+                .from("users")
+                .update({
                     name: parsed.value.name,
                     phone: parsed.value.phone,
                 })
-                .where(eq(users.id, user.id))
-                .catch((error) => {
-                    console.error(
-                        "[appointment] gagal memperbarui profil",
-                        error,
-                    )
+                .eq("id", user.id)
+                .then(({ error }) => {
+                    if (error) {
+                        console.error(
+                            "[appointment] gagal memperbarui profil",
+                            error.message,
+                        )
+                    }
                 })
 
             const receipt = await sendAppointmentReceipt(appointment)

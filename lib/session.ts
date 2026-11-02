@@ -7,13 +7,12 @@ import {
     SESSION_COOKIE,
     verifySessionToken,
 } from "@/lib/auth"
-import { db } from "@/lib/db"
-import { users } from "@/lib/db/schema"
 import { verifyPassword } from "@/lib/password"
-import type { AuthUser } from "@/lib/types"
+import { getSupabaseClient } from "@/lib/supabase"
+import type { AuthUser, UserRow } from "@/lib/types"
 import { displayNameFromEmail, normalizeEmail } from "@/lib/validation"
 
-export type UserRow = typeof users.$inferSelect
+export type { UserRow }
 
 export function isAdminRole(role: string | null): boolean {
     return role?.toLowerCase() === "admin"
@@ -37,27 +36,35 @@ export async function findUserByEmail(email: string): Promise<UserRow | null> {
     const normalizedEmail = normalizeEmail(email)
     if (!normalizedEmail) return null
 
-    const rows = await db
-        .select()
-        .from(users)
-        .where(sql`lower(${users.email}) = ${normalizedEmail}`)
-        .limit(1)
+    const supabase = getSupabaseClient()
+    const { data, error } = await supabase
+        .from("users")
+        .select("*")
+        .ilike("email", normalizedEmail)
+        .maybeSingle()
 
-    return rows[0] ?? null
+    if (error) {
+        console.error("[session] gagal mencari user by email", error.message)
+        return null
+    }
+
+    return (data as UserRow) ?? null
 }
 
 export async function findUserById(id: string): Promise<UserRow | null> {
-    const rows = await db.select().from(users).where(eq(users.id, id)).limit(1)
-    return rows[0] ?? null
-}
+    const supabase = getSupabaseClient()
+    const { data, error } = await supabase
+        .from("users")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle()
 
-function isUniqueViolation(error: unknown): boolean {
-    return (
-        typeof error === "object" &&
-        error !== null &&
-        "code" in error &&
-        (error as { code?: string }).code === "23505"
-    )
+    if (error) {
+        console.error("[session] gagal mencari user by id", error.message)
+        return null
+    }
+
+    return (data as UserRow) ?? null
 }
 
 /**
@@ -68,32 +75,32 @@ export async function findOrCreateUserByEmail(email: string): Promise<UserRow> {
     const existing = await findUserByEmail(normalizedEmail)
     if (existing) return existing
 
-    try {
-        const rows = await db
-            .insert(users)
-            .values({
-                id: randomUUID(),
-                email: normalizedEmail,
-                name: displayNameFromEmail(normalizedEmail),
-                role: "user",
-                password: null,
-                phone: null,
-                createdAt: new Date(),
-            })
-            .returning()
-
-        const created = rows[0]
-        if (!created) throw new Error("Gagal membuat pengguna")
-        return created
-    } catch (error) {
-        // Another verification request may have created the same email first.
-        if (isUniqueViolation(error)) {
-            const raced = await findUserByEmail(normalizedEmail)
-            if (raced) return raced
-        }
-
-        throw error
+    const supabase = getSupabaseClient()
+    const newUser: UserRow = {
+        id: randomUUID(),
+        email: normalizedEmail,
+        name: displayNameFromEmail(normalizedEmail),
+        role: "user",
+        password: null,
+        phone: null,
+        created_at: new Date().toISOString(),
     }
+
+    const { data, error } = await supabase
+        .from("users")
+        .insert(newUser)
+        .select()
+        .single()
+
+    if (error) {
+        // Another verification request may have created the same email first.
+        const raced = await findUserByEmail(normalizedEmail)
+        if (raced) return raced
+
+        throw new Error(`Gagal membuat pengguna: ${error.message}`)
+    }
+
+    return data as UserRow
 }
 
 async function getUserFromToken(
