@@ -1,21 +1,10 @@
-"use client"
+import { QueueDashboard } from "@/components/queue-dashboard"
+import { getCurrentUser } from "@/lib/session"
 
-import { useRouter } from "next/navigation"
-import { useEffect } from "react"
-import { authClient } from "@/lib/auth-client"
+export const dynamic = "force-dynamic"
 
-export default function HomePage() {
-    const { data: session, isPending } = authClient.useSession()
-    const router = useRouter()
+export default async function HomePage() {
+    const user = await getCurrentUser()
 
-    useEffect(() => {
-        if (isPending) return
-        if (!session) {
-            router.push("/auth/login")
-            return
-        }
-        router.push("/admin/dashboard")
-    }, [session, isPending, router])
-
-    return null
+    return <QueueDashboard currentUser={user} />
 }

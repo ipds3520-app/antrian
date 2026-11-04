@@ -1,7 +1,8 @@
 "use client"
 
-import { RefreshCw } from "lucide-react"
+import { MessageCircle, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
+import { AdminAppointmentDialog } from "@/components/admin-appointment-dialog"
 import { Button } from "@/components/ui/button"
 import {
     Card,
@@ -12,6 +13,13 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
+import {
     Table,
     TableBody,
     TableCell,
@@ -19,172 +27,316 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table"
-import { type AntrianStatus, STATUS_LABELS, toDateKey } from "@/lib/antrian"
+import { formatDateId, SERVICES } from "@/lib/antrian"
+import { apiRequest, handleApiError } from "@/lib/http"
+import type { AppointmentDto } from "@/lib/types"
 
-interface AdminAntrianEntry {
-    id: number
-    userId: string
-    userName: string | null
-    userEmail: string | null
-    jenisLayanan: string
-    nomorAntri: number
-    tanggal: string
-    appointmentTime: string
-    status: AntrianStatus
-    createdAt: string
+interface ListResponse {
+    data: AppointmentDto[]
+    pagination: {
+        total: number
+        limit: number
+        offset: number
+        hasMore: boolean
+    }
 }
 
-function formatTime(iso: string) {
-    return new Date(iso).toLocaleTimeString("id-ID", {
-        hour: "2-digit",
-        minute: "2-digit",
-    })
+interface Filters {
+    q: string
+    service: string
+    from: string
+    to: string
 }
 
-function nextStatus(status: AntrianStatus): AntrianStatus | null {
-    if (status === "waiting") return "in_progress"
-    if (status === "in_progress") return "done"
-    return null
+const EMPTY_FILTERS: Filters = { q: "", service: "all", from: "", to: "" }
+
+function statusBadge(status: AppointmentDto["status"]) {
+    if (status === "upcoming") {
+        return (
+            <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                Akan datang
+            </span>
+        )
+    }
+
+    return (
+        <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
+            Selesai
+        </span>
+    )
 }
 
 export default function AdminDashboardPage() {
-    const [entries, setEntries] = useState<AdminAntrianEntry[]>([])
+    const [entries, setEntries] = useState<AppointmentDto[]>([])
+    const [pagination, setPagination] = useState<ListResponse["pagination"]>({
+        total: 0,
+        limit: 50,
+        offset: 0,
+        hasMore: false,
+    })
+    const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
+    const [applied, setApplied] = useState<Filters>(EMPTY_FILTERS)
+    const [offset, setOffset] = useState(0)
     const [loading, setLoading] = useState(true)
-    const [listError, setListError] = useState("")
-    const [busyId, setBusyId] = useState<number | null>(null)
-    const [selectedDate, setSelectedDate] = useState(toDateKey(new Date()))
+    const [error, setError] = useState("")
+    const [notice, setNotice] = useState("")
+    const [busyId, setBusyId] = useState<string | null>(null)
+    const [dialogOpen, setDialogOpen] = useState(false)
+    const [editing, setEditing] = useState<AppointmentDto | null>(null)
 
-    const fetchEntries = useCallback(async (date: string) => {
+    const load = useCallback(async () => {
+        setLoading(true)
         try {
-            const res = await fetch(`/api/antrian?date=${date}`)
-            if (!res.ok) {
-                const json = await res.json().catch(() => null)
-                throw new Error(json?.message ?? "Gagal memuat antrian")
-            }
-            setEntries(await res.json())
-            setListError("")
-        } catch (err) {
-            setListError(
-                err instanceof Error ? err.message : "Gagal memuat antrian",
+            const params = new URLSearchParams({
+                limit: "50",
+                offset: String(offset),
+            })
+
+            if (applied.q.trim()) params.set("q", applied.q.trim())
+            if (applied.service !== "all")
+                params.set("service", applied.service)
+            if (applied.from) params.set("from", applied.from)
+            if (applied.to) params.set("to", applied.to)
+
+            const payload = await apiRequest<ListResponse>(
+                `/api/admin/appointments?${params.toString()}`,
+            )
+
+            setEntries(payload.data)
+            setPagination(payload.pagination)
+            setError("")
+        } catch (error) {
+            setError(
+                handleApiError(error, () =>
+                    window.location.assign("/auth/admin"),
+                ),
             )
         } finally {
             setLoading(false)
         }
-    }, [])
+    }, [applied, offset])
 
     useEffect(() => {
-        setLoading(true)
-        fetchEntries(selectedDate)
-    }, [fetchEntries, selectedDate])
+        load()
+    }, [load])
 
-    async function advance(entry: AdminAntrianEntry) {
-        const target = nextStatus(entry.status)
-        if (!target) return
-
-        setBusyId(entry.id)
-        try {
-            const res = await fetch(`/api/antrian/${entry.id}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ status: target }),
-            })
-            if (!res.ok) {
-                const json = await res.json().catch(() => null)
-                throw new Error(json?.message ?? "Gagal memperbarui status")
-            }
-            fetchEntries(selectedDate)
-        } catch (err) {
-            setListError(
-                err instanceof Error ? err.message : "Gagal memperbarui status",
-            )
-        } finally {
-            setBusyId(null)
-        }
+    function applyFilters(event: React.FormEvent) {
+        event.preventDefault()
+        setOffset(0)
+        setApplied(filters)
     }
 
-    async function remove(entry: AdminAntrianEntry) {
-        setBusyId(entry.id)
+    function resetFilters() {
+        setFilters(EMPTY_FILTERS)
+        setApplied(EMPTY_FILTERS)
+        setOffset(0)
+    }
+
+    function openCreate() {
+        setEditing(null)
+        setDialogOpen(true)
+    }
+
+    function openEdit(appointment: AppointmentDto) {
+        setEditing(appointment)
+        setDialogOpen(true)
+    }
+
+    async function remove(appointment: AppointmentDto) {
+        const confirmed = window.confirm(
+            `Hapus appointment ${appointment.name} pada ${formatDateId(appointment.bookedDate)}?`,
+        )
+        if (!confirmed) return
+
+        setBusyId(appointment.id)
+        setNotice("")
         try {
-            const res = await fetch(`/api/antrian/${entry.id}`, {
+            await apiRequest(`/api/admin/appointments/${appointment.id}`, {
                 method: "DELETE",
             })
-            if (!res.ok) {
-                const json = await res.json().catch(() => null)
-                throw new Error(json?.message ?? "Gagal menghapus antrian")
-            }
-            fetchEntries(selectedDate)
-        } catch (err) {
-            setListError(
-                err instanceof Error ? err.message : "Gagal menghapus antrian",
+            setNotice("Appointment berhasil dihapus.")
+            await load()
+        } catch (error) {
+            setError(
+                handleApiError(error, () =>
+                    window.location.assign("/auth/admin"),
+                ),
             )
         } finally {
             setBusyId(null)
         }
     }
 
-    const waitingCount = entries.filter((e) => e.status === "waiting").length
-    const activeCount = entries.filter((e) => e.status !== "done").length
+    async function resendReceipt(appointment: AppointmentDto) {
+        setBusyId(appointment.id)
+        setNotice("")
+        setError("")
+        try {
+            const payload = await apiRequest<{
+                data: { sent: boolean; error?: string }
+            }>(`/api/admin/appointments/${appointment.id}/receipt`, {
+                method: "POST",
+            })
+
+            setNotice(
+                payload.data.sent
+                    ? "Kuitansi WhatsApp berhasil dikirim."
+                    : `Kuitansi tidak terkirim: ${payload.data.error ?? "provider belum dikonfigurasi"}`,
+            )
+        } catch (error) {
+            setError(
+                handleApiError(error, () =>
+                    window.location.assign("/auth/admin"),
+                ),
+            )
+        } finally {
+            setBusyId(null)
+        }
+    }
+
+    const currentPage = Math.floor(offset / pagination.limit) + 1
+    const totalPages = Math.max(
+        1,
+        Math.ceil(pagination.total / pagination.limit),
+    )
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                    <h2 className="text-2xl font-bold">Kelola Antrian</h2>
+                    <h2 className="text-2xl font-bold">Riwayat Appointment</h2>
                     <p className="text-sm text-muted-foreground">
-                        {activeCount} antrian aktif, {waitingCount} menunggu
+                        {pagination.total} appointment tersimpan. Menampilkan
+                        seluruh riwayat dari semua tanggal.
                     </p>
                 </div>
-                <div className="flex items-center gap-2">
-                    <Input
-                        type="date"
-                        value={selectedDate}
-                        onChange={(e) => setSelectedDate(e.target.value)}
-                        className="w-44"
-                    />
+                <div className="flex gap-2">
                     <Button
                         variant="outline"
                         size="icon"
-                        onClick={() => {
-                            setLoading(true)
-                            fetchEntries(selectedDate)
-                        }}
+                        onClick={load}
+                        disabled={loading}
+                        aria-label="Muat ulang"
                     >
                         <RefreshCw className="h-4 w-4" />
+                    </Button>
+                    <Button onClick={openCreate}>
+                        <Plus className="h-4 w-4" />
+                        Tambah
                     </Button>
                 </div>
             </div>
 
+            {error && (
+                <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                    {error}
+                </div>
+            )}
+            {notice && (
+                <div className="rounded-md bg-muted p-3 text-sm">{notice}</div>
+            )}
+
             <Card>
                 <CardHeader className="pb-3">
-                    <CardTitle>Daftar Antrian</CardTitle>
+                    <CardTitle>Filter</CardTitle>
                     <CardDescription>
-                        Panggil antrian berikutnya atau hapus antrian yang tidak
-                        valid. Pilih tanggal lain untuk melihat riwayat.
+                        Cari berdasarkan nama, email, atau nomor WhatsApp.
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
+                    <form
+                        onSubmit={applyFilters}
+                        className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_160px_160px_auto]"
+                    >
+                        <Input
+                            placeholder="Cari nama, email, telepon..."
+                            value={filters.q}
+                            onChange={(event) =>
+                                setFilters({
+                                    ...filters,
+                                    q: event.target.value,
+                                })
+                            }
+                        />
+                        <Select
+                            value={filters.service}
+                            onValueChange={(value) =>
+                                setFilters({ ...filters, service: value })
+                            }
+                        >
+                            <SelectTrigger>
+                                <SelectValue placeholder="Layanan" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">
+                                    Semua layanan
+                                </SelectItem>
+                                {SERVICES.map((service) => (
+                                    <SelectItem
+                                        key={service.value}
+                                        value={service.value}
+                                    >
+                                        {service.label}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <Input
+                            type="date"
+                            value={filters.from}
+                            onChange={(event) =>
+                                setFilters({
+                                    ...filters,
+                                    from: event.target.value,
+                                })
+                            }
+                            aria-label="Dari tanggal"
+                        />
+                        <Input
+                            type="date"
+                            value={filters.to}
+                            onChange={(event) =>
+                                setFilters({
+                                    ...filters,
+                                    to: event.target.value,
+                                })
+                            }
+                            aria-label="Sampai tanggal"
+                        />
+                        <div className="flex gap-2">
+                            <Button type="submit">Terapkan</Button>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={resetFilters}
+                            >
+                                Reset
+                            </Button>
+                        </div>
+                    </form>
+                </CardContent>
+            </Card>
+
+            <Card>
+                <CardContent className="pt-6">
                     {loading ? (
                         <p className="py-8 text-center text-muted-foreground">
                             Memuat...
                         </p>
-                    ) : listError ? (
-                        <p className="py-8 text-center text-sm text-destructive">
-                            {listError}
-                        </p>
                     ) : entries.length === 0 ? (
                         <p className="py-8 text-center text-muted-foreground">
-                            Tidak ada antrian pada tanggal ini
+                            Tidak ada appointment yang cocok.
                         </p>
                     ) : (
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead>Waktu</TableHead>
-                                    <TableHead>Pengguna</TableHead>
-                                    <TableHead>Jenis Layanan</TableHead>
+                                    <TableHead>Jadwal</TableHead>
+                                    <TableHead>Pemesan</TableHead>
+                                    <TableHead>Layanan</TableHead>
                                     <TableHead>Status</TableHead>
                                     <TableHead className="text-right">
-                                        Nomor
+                                        No.
                                     </TableHead>
                                     <TableHead className="text-right">
                                         Aksi
@@ -192,76 +344,120 @@ export default function AdminDashboardPage() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {entries.map((entry) => {
-                                    const target = nextStatus(entry.status)
-                                    return (
-                                        <TableRow key={entry.id}>
-                                            <TableCell>
-                                                {formatTime(
-                                                    entry.appointmentTime,
-                                                )}
-                                            </TableCell>
-                                            <TableCell>
-                                                <div className="text-sm">
-                                                    {entry.userName ?? "-"}
-                                                </div>
-                                                <div className="text-xs text-muted-foreground">
-                                                    {entry.userEmail ?? "-"}
-                                                </div>
-                                            </TableCell>
-                                            <TableCell>
-                                                {entry.jenisLayanan}
-                                            </TableCell>
-                                            <TableCell>
-                                                {STATUS_LABELS[entry.status]}
-                                            </TableCell>
-                                            <TableCell className="text-right font-mono text-lg font-bold">
-                                                {entry.nomorAntri}
-                                            </TableCell>
-                                            <TableCell>
-                                                <div className="flex justify-end gap-1">
-                                                    {target && (
-                                                        <Button
-                                                            size="sm"
-                                                            variant="outline"
-                                                            disabled={
-                                                                busyId ===
-                                                                entry.id
-                                                            }
-                                                            onClick={() =>
-                                                                advance(entry)
-                                                            }
-                                                        >
-                                                            {
-                                                                STATUS_LABELS[
-                                                                    target
-                                                                ]
-                                                            }
-                                                        </Button>
-                                                    )}
-                                                    <Button
-                                                        size="sm"
-                                                        variant="ghost"
-                                                        className="text-destructive"
-                                                        disabled={
-                                                            busyId === entry.id
-                                                        }
-                                                        onClick={() =>
-                                                            remove(entry)
-                                                        }
-                                                    >
-                                                        Hapus
-                                                    </Button>
-                                                </div>
-                                            </TableCell>
-                                        </TableRow>
-                                    )
-                                })}
+                                {entries.map((entry) => (
+                                    <TableRow key={entry.id}>
+                                        <TableCell>
+                                            <div className="text-sm font-medium">
+                                                {formatDateId(entry.bookedDate)}
+                                            </div>
+                                            <div className="text-xs text-muted-foreground">
+                                                {entry.time}
+                                            </div>
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className="text-sm font-medium">
+                                                {entry.name}
+                                            </div>
+                                            <div className="text-xs text-muted-foreground">
+                                                {entry.email}
+                                            </div>
+                                            <div className="text-xs text-muted-foreground">
+                                                {entry.phone ?? "-"}
+                                            </div>
+                                        </TableCell>
+                                        <TableCell className="text-sm">
+                                            {entry.serviceLabel}
+                                        </TableCell>
+                                        <TableCell>
+                                            {statusBadge(entry.status)}
+                                        </TableCell>
+                                        <TableCell className="text-right font-mono text-lg font-bold">
+                                            {entry.queueNumber ?? "-"}
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className="flex justify-end gap-1">
+                                                <Button
+                                                    size="icon"
+                                                    variant="ghost"
+                                                    disabled={
+                                                        busyId === entry.id
+                                                    }
+                                                    onClick={() =>
+                                                        resendReceipt(entry)
+                                                    }
+                                                    aria-label="Kirim ulang WhatsApp"
+                                                >
+                                                    <MessageCircle className="h-4 w-4" />
+                                                </Button>
+                                                <Button
+                                                    size="icon"
+                                                    variant="ghost"
+                                                    disabled={
+                                                        busyId === entry.id
+                                                    }
+                                                    onClick={() =>
+                                                        openEdit(entry)
+                                                    }
+                                                    aria-label="Ubah"
+                                                >
+                                                    <Pencil className="h-4 w-4" />
+                                                </Button>
+                                                <Button
+                                                    size="icon"
+                                                    variant="ghost"
+                                                    className="text-destructive"
+                                                    disabled={
+                                                        busyId === entry.id
+                                                    }
+                                                    onClick={() =>
+                                                        remove(entry)
+                                                    }
+                                                    aria-label="Hapus"
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </div>
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
                             </TableBody>
                         </Table>
                     )}
                 </CardContent>
             </Card>
+
+            <div className="flex items-center justify-between text-sm text-muted-foreground">
+                <span>
+                    Halaman {currentPage} dari {totalPages}
+                </span>
+                <div className="flex gap-2">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={offset === 0 || loading}
+                        onClick={() =>
+                            setOffset(Math.max(0, offset - pagination.limit))
+                        }
+                    >
+                        Sebelumnya
+                    </Button>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={!pagination.hasMore || loading}
+                        onClick={() => setOffset(offset + pagination.limit)}
+                    >
+                        Berikutnya
+                    </Button>
+                </div>
+            </div>
+
+            <AdminAppointmentDialog
+                open={dialogOpen}
+                onOpenChange={setDialogOpen}
+                appointment={editing}
+                onSaved={load}
+            />
         </div>
     )
 }

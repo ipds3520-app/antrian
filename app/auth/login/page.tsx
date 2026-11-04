@@ -1,7 +1,8 @@
 "use client"
 
+import { Mail } from "lucide-react"
 import Link from "next/link"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
     Card,
@@ -13,33 +14,39 @@ import {
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { authClient } from "@/lib/auth-client"
+import { apiRequest, handleApiError } from "@/lib/http"
 
 export default function LoginPage() {
     const [email, setEmail] = useState("")
-    const [password, setPassword] = useState("")
     const [error, setError] = useState("")
     const [loading, setLoading] = useState(false)
+    const [sentTo, setSentTo] = useState<string | null>(null)
 
-    async function handleSubmit(e: React.FormEvent) {
-        e.preventDefault()
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search)
+        if (params.get("error") === "expired") {
+            setError("Tautan masuk sudah kedaluwarsa. Silakan minta lagi.")
+        } else if (params.get("error")) {
+            setError("Tautan masuk tidak valid. Silakan minta lagi.")
+        }
+    }, [])
+
+    async function handleSubmit(event: React.FormEvent) {
+        event.preventDefault()
         setError("")
         setLoading(true)
 
         try {
-            const { error: signInError } = await authClient.signIn.email({
-                email,
-                password,
+            await apiRequest<{
+                message: string
+            }>("/api/auth/request-link", {
+                method: "POST",
+                body: JSON.stringify({ email }),
             })
 
-            if (signInError) {
-                setError(signInError.message ?? "Email atau password salah")
-                return
-            }
-
-            window.location.assign("/admin/dashboard")
-        } catch {
-            setError("Terjadi kesalahan, coba lagi")
+            setSentTo(email)
+        } catch (error) {
+            setError(handleApiError(error))
         } finally {
             setLoading(false)
         }
@@ -49,53 +56,79 @@ export default function LoginPage() {
         <Card>
             <CardHeader className="text-center">
                 <CardTitle className="text-2xl">Masuk</CardTitle>
-                <CardDescription>Masuk ke sistem antrian</CardDescription>
+                <CardDescription>
+                    Masukkan email Anda. Kami akan mengirim tautan untuk masuk
+                    tanpa password.
+                </CardDescription>
             </CardHeader>
-            <form onSubmit={handleSubmit}>
+
+            {sentTo ? (
                 <CardContent className="space-y-4">
-                    {error && (
-                        <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-                            {error}
-                        </div>
-                    )}
-                    <div className="space-y-2">
-                        <Label htmlFor="email">Email</Label>
-                        <Input
-                            id="email"
-                            type="email"
-                            placeholder="email@example.com"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            required
-                        />
+                    <div className="rounded-md bg-muted p-4 text-sm">
+                        Tautan masuk telah dikirim ke{" "}
+                        <span className="font-medium">{sentTo}</span>. Buka
+                        email Anda lalu tekan tautan tersebut.
                     </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="password">Password</Label>
-                        <Input
-                            id="password"
-                            type="password"
-                            placeholder="Masukkan password"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            required
-                        />
-                    </div>
-                </CardContent>
-                <CardFooter className="flex flex-col gap-3">
-                    <Button type="submit" className="w-full" disabled={loading}>
-                        {loading ? "Masuk..." : "Masuk"}
+                    <Button
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => {
+                            setSentTo(null)
+                        }}
+                    >
+                        Gunakan email lain
                     </Button>
-                    <p className="text-center text-sm text-muted-foreground">
-                        Belum punya akun?{" "}
-                        <Link
-                            href="/auth/register"
-                            className="underline underline-offset-4"
+                </CardContent>
+            ) : (
+                <form onSubmit={handleSubmit}>
+                    <CardContent className="space-y-4">
+                        {error && (
+                            <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                                {error}
+                            </div>
+                        )}
+                        <div className="space-y-2">
+                            <Label htmlFor="email">Email</Label>
+                            <Input
+                                id="email"
+                                type="email"
+                                placeholder="email@example.com"
+                                value={email}
+                                onChange={(event) =>
+                                    setEmail(event.target.value)
+                                }
+                                required
+                            />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                            Sesi berlaku sementara. Setelah berakhir, Anda dapat
+                            meminta tautan masuk baru.
+                        </p>
+                    </CardContent>
+                    <CardFooter>
+                        <Button
+                            type="submit"
+                            className="w-full"
+                            disabled={loading}
                         >
-                            Daftar
-                        </Link>
-                    </p>
-                </CardFooter>
-            </form>
+                            <Mail className="h-4 w-4" />
+                            {loading ? "Mengirim..." : "Kirim tautan masuk"}
+                        </Button>
+                    </CardFooter>
+                </form>
+            )}
+
+            <CardFooter className="flex flex-col gap-2 border-t pt-4">
+                <p className="text-center text-sm text-muted-foreground">
+                    Admin?{" "}
+                    <Link
+                        href="/auth/admin"
+                        className="underline underline-offset-4"
+                    >
+                        Masuk sebagai admin
+                    </Link>
+                </p>
+            </CardFooter>
         </Card>
     )
 }
