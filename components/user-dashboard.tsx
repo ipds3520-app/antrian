@@ -65,16 +65,16 @@ function createInitialForm(user: UserDashboardProps["user"]): BookingForm {
 }
 
 function statusBadge(status: AppointmentDto["status"]) {
-    if (status === "upcoming") {
+    if (status === "proses") {
         return (
-            <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-                Akan datang
+            <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                Proses
             </span>
         )
     }
 
     return (
-        <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
+        <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
             Selesai
         </span>
     )

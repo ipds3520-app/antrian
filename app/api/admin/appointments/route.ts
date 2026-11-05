@@ -1,11 +1,7 @@
+import { NextResponse } from "next/server"
 import { isService } from "@/lib/antrian"
-import { fail, ok, withAdmin } from "@/lib/api"
-import {
-    createAppointment,
-    listAppointments,
-    parseBookingInput,
-} from "@/lib/appointments"
-import { sendAppointmentReceipt } from "@/lib/receipt"
+import { withAdmin } from "@/lib/api"
+import { listAppointments } from "@/lib/appointments"
 
 function positiveInt(value: string | null): number | undefined {
     if (!value) return undefined
@@ -28,33 +24,6 @@ export async function GET(request: Request) {
             offset: positiveInt(params.get("offset")),
         })
 
-        return ok(result)
-    })
-}
-
-export async function POST(request: Request) {
-    return withAdmin(request, async () => {
-        const body = await request.json().catch(() => null)
-        const parsed = parseBookingInput(body, { allowPast: true })
-
-        if (!parsed.ok) {
-            return fail(parsed.message, 400, "INVALID_INPUT")
-        }
-
-        const appointment = await createAppointment(parsed.value, {
-            enforceConflict: false,
-        })
-
-        const shouldSendReceipt =
-            typeof body === "object" &&
-            body !== null &&
-            "sendReceipt" in body &&
-            (body as { sendReceipt?: unknown }).sendReceipt === true
-
-        const receipt = shouldSendReceipt
-            ? await sendAppointmentReceipt(appointment)
-            : undefined
-
-        return ok({ appointment, receipt }, { status: 201 })
+        return NextResponse.json(result)
     })
 }

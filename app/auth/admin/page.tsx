@@ -86,6 +86,9 @@ export default function AdminLoginPage() {
                         <LogIn className="h-4 w-4" />
                         {loading ? "Masuk..." : "Masuk"}
                     </Button>
+                    <Button asChild variant="outline" className="w-full">
+                        <Link href="/">Kembali ke Jadwal Antrian</Link>
+                    </Button>
                     <p className="text-center text-sm text-muted-foreground">
                         Pengguna?{" "}
                         <Link

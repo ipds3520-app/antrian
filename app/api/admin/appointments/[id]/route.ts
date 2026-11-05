@@ -2,7 +2,7 @@ import { fail, ok, withAdmin } from "@/lib/api"
 import {
     deleteAppointment,
     getAppointmentById,
-    updateAppointment,
+    setAppointmentStatus,
 } from "@/lib/appointments"
 
 export async function GET(
@@ -28,16 +28,34 @@ export async function PATCH(
     return withAdmin(request, async () => {
         const { id } = await params
         const body = await request.json().catch(() => null)
-        const result = await updateAppointment(id, body)
+        const record =
+            typeof body === "object" && body !== null
+                ? (body as Record<string, unknown>)
+                : null
 
-        if (!result) {
+        if (!record || record.status === undefined) {
+            return fail(
+                "Hanya status appointment yang dapat diubah oleh admin",
+                400,
+                "INVALID_INPUT",
+            )
+        }
+
+        if (record.status !== "proses" && record.status !== "selesai") {
+            return fail(
+                "Status harus 'proses' atau 'selesai'",
+                400,
+                "INVALID_INPUT",
+            )
+        }
+
+        const updated = await setAppointmentStatus(id, record.status)
+
+        if (!updated) {
             return fail("Appointment tidak ditemukan", 404, "NOT_FOUND")
         }
-        if (!result.ok) {
-            return fail(result.message, 400, "INVALID_INPUT")
-        }
 
-        return ok(result.value)
+        return ok(updated)
     })
 }
 

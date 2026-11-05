@@ -119,6 +119,9 @@ export default function LoginPage() {
             )}
 
             <CardFooter className="flex flex-col gap-2 border-t pt-4">
+                <Button asChild variant="outline" className="w-full">
+                    <Link href="/">Kembali ke Jadwal Antrian</Link>
+                </Button>
                 <p className="text-center text-sm text-muted-foreground">
                     Admin?{" "}
                     <Link

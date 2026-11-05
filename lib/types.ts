@@ -21,7 +21,7 @@ export interface UserRow {
 export type User = UserRow
 
 export interface AppointmentRow {
-    id: string
+    id: string | number
     created_at: string | Date | null
     name: string
     email: string
@@ -29,12 +29,15 @@ export interface AppointmentRow {
     time: string
     service: string
     phone: string | null
+    auth_user_id?: string | null
     queue_number: number | null
+    status: string | null
+    completed_at: string | Date | null
 }
 
 export type Appointment = AppointmentRow
 
-export type AppointmentStatus = "upcoming" | "expired"
+export type AppointmentStatus = "proses" | "selesai"
 
 export interface AppointmentDto {
     id: string
@@ -48,6 +51,7 @@ export interface AppointmentDto {
     serviceLabel: string
     queueNumber: number | null
     status: AppointmentStatus
+    completedAt: string | null
 }
 
 export interface ReceiptResult {

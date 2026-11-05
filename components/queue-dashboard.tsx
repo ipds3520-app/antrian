@@ -11,15 +11,16 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table"
-import { isPastDateTime, normalizeTimeKey, serviceLabel } from "@/lib/antrian"
+import { normalizeTimeKey, serviceLabel } from "@/lib/antrian"
 import type { AuthUser } from "@/lib/types"
 
 interface AppointmentItem {
-    id: string
+    id: string | number
     booked_date: string
     time: string
     service: string
     queue_number?: number | null
+    status?: string | null
 }
 
 export function QueueDashboard({
@@ -147,16 +148,11 @@ export function QueueDashboard({
                                 </TableRow>
                             ) : (
                                 appointments.map((item) => {
-                                    const dateStr = item.booked_date
-                                        ? String(item.booked_date).slice(0, 10)
-                                        : ""
                                     const timeStr = normalizeTimeKey(
                                         String(item.time || "00:00"),
                                     )
-                                    const isPast = isPastDateTime(
-                                        dateStr,
-                                        timeStr,
-                                    )
+                                    const isDone =
+                                        item.status?.toLowerCase() === "selesai"
 
                                     return (
                                         <TableRow key={item.id}>
@@ -173,14 +169,14 @@ export function QueueDashboard({
                                             <TableCell className="text-center">
                                                 <span
                                                     className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                                                        isPast
-                                                            ? "bg-muted text-muted-foreground"
-                                                            : "bg-primary/10 text-primary"
+                                                        isDone
+                                                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                                                            : "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
                                                     }`}
                                                 >
-                                                    {isPast
+                                                    {isDone
                                                         ? "Selesai"
-                                                        : "Menunggu"}
+                                                        : "Proses"}
                                                 </span>
                                             </TableCell>
                                         </TableRow>
