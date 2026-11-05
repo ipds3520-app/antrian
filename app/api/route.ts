@@ -19,7 +19,7 @@ export async function GET() {
         // Fallback to "appointment" (singular) if "appointments" (plural) relation doesn't exist
         if (error) {
             const fallback = await supabase
-                .from("appointment")
+                .from("appointments")
                 .select("*")
                 .eq("booked_date", today)
                 .order("queue_number", { ascending: true, nullsFirst: false })
@@ -47,86 +47,105 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-    try {
-        const supabase = getSupabaseClient()
+  try {
+    const body = await request.json();
+    const supabase = getSupabaseClient();
 
-        const body = await request.json().catch(() => null)
-        if (!body || typeof body !== "object") {
-            return Response.json({ error: "Body tidak valid" }, { status: 400 })
-        }
+    const {
+      name,
+      email,
+      booked_date,
+      time,
+      service,
+      phone
+    } = body;
 
-        const record = body as Record<string, unknown>
-        const name = typeof record.name === "string" ? record.name.trim() : ""
-        const email =
-            typeof record.email === "string" ? record.email.trim() : ""
-        const phone =
-            typeof record.phone === "string" ? record.phone.trim() : ""
-        const bookedDate =
-            typeof record.booked_date === "string"
-                ? record.booked_date
-                : typeof record.bookedDate === "string"
-                  ? record.bookedDate
-                  : ""
-        const time = typeof record.time === "string" ? record.time : ""
-        const service = typeof record.service === "string" ? record.service : ""
-        const queueNumber = record.queue_number ?? record.queueNumber
-
-        if (!name || !email || !bookedDate || !time || !service) {
-            return Response.json(
-                { error: "Field wajib tidak lengkap" },
-                { status: 400 },
-            )
-        }
-
-        const insertData: Record<string, unknown> = {
-            id: randomUUID(),
-            created_at: new Date().toISOString(),
-            name,
-            email,
-            booked_date: bookedDate,
-            time,
-            service,
-            phone: phone || null,
-        }
-
-        if (
-            queueNumber !== undefined &&
-            queueNumber !== null &&
-            queueNumber !== ""
-        ) {
-            insertData.queue_number = queueNumber
-        }
-
-        let { data, error } = await supabase
-            .from("appointments")
-            .insert(insertData)
-            .select()
-            .single()
-
-        if (error) {
-            const fallback = await supabase
-                .from("appointment")
-                .insert(insertData)
-                .select()
-                .single()
-
-            if (!fallback.error) {
-                data = fallback.data
-                error = null
-            }
-        }
-
-        if (error) {
-            console.error("[api/root] gagal menambahkan appointments", error)
-            return Response.json({ error: error.message }, { status: 500 })
-        }
-
-        return Response.json({ appointments: data }, { status: 201 })
-    } catch (err) {
-        console.error("[api/root] unhandled POST error", err)
-        return Response.json(
-            { error: "Terjadi kesalahan server" },
-            { status: 500 },
-        )
+    // Validate required fields
+    if (!booked_date || !time) {
+      return Response.json(
+        {
+          success: false,
+          message: "booked_date and time are required",
+        },
+        { status: 400 }
+      );
     }
+
+    // Validate date format
+    if (
+      typeof booked_date !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(booked_date)
+    ) {
+      return Response.json(
+        {
+          success: false,
+          message: "Invalid booked_date format",
+        },
+        { status: 400 }
+      );
+    }
+
+    // Get timezone from environment
+    const timezone =
+      process.env.NEXT_PUBLIC_APP_TIMEZONE || "Asia/Jakarta";
+
+    // Get the next queue number for the booked date
+    const { data: latestAppointment, error: fetchError } =
+      await supabase
+        .from("appointments")
+        .select("queue_number")
+        .eq("booked_date", booked_date)
+        .order("queue_number", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (fetchError) {
+      console.error("Fetch error:", JSON.stringify(fetchError, null, 2));
+      throw fetchError;
+    }
+
+    const nextQueueNumber =
+      Number(latestAppointment?.queue_number ?? 0) + 1;
+
+    // Insert appointment
+    const { data, error } = await supabase
+      .from("appointments")
+      .insert({
+        name,
+        email,
+        booked_date,
+        time,
+        service,
+        phone,
+        queue_number: nextQueueNumber,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Insert error:", JSON.stringify(error, null, 2));
+      throw error;
+    }
+
+    return Response.json(
+      {
+        success: true,
+        message: "Appointment created successfully",
+        data,
+      },
+      { status: 201 }
+    );
+
+  } catch (error) {
+    console.error("Appointment POST error:", error);
+
+    return Response.json(
+      {
+        success: false,
+        message: "Failed to create appointment",
+        error: JSON.stringify(error, Object.getOwnPropertyNames(error as object)),
+      },
+      { status: 500 }
+    );
+  }
 }

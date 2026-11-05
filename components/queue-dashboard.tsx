@@ -16,7 +16,6 @@ import type { AuthUser } from "@/lib/types"
 
 interface AppointmentItem {
     id: string
-    name: string
     booked_date: string
     time: string
     service: string
@@ -121,7 +120,6 @@ export function QueueDashboard({
                                     No. Antrian
                                 </TableHead>
                                 <TableHead className="w-28">Waktu</TableHead>
-                                <TableHead>Nama</TableHead>
                                 <TableHead>Layanan</TableHead>
                                 <TableHead className="w-28 text-center">
                                     Status
@@ -169,9 +167,6 @@ export function QueueDashboard({
                                                 ).padStart(2, "0")}
                                             </TableCell>
                                             <TableCell>{timeStr} WIB</TableCell>
-                                            <TableCell className="font-medium">
-                                                {item.name}
-                                            </TableCell>
                                             <TableCell>
                                                 {serviceLabel(item.service)}
                                             </TableCell>
