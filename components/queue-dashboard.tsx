@@ -107,7 +107,11 @@ export function QueueDashboard({
                                         : "/auth/login"
                                 }
                             >
-                                {currentUser ? "Ke Dashboard" : "Masuk"}
+                                {currentUser
+                                    ? currentUser.role === "admin"
+                                        ? "Dashboard Admin"
+                                        : "Dashboard Saya"
+                                    : "Masuk"}
                             </Link>
                         </Button>
                     </div>

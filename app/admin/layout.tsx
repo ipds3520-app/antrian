@@ -20,6 +20,10 @@ export default async function AdminLayout({
                 userName={user.name}
                 homeHref="/admin/dashboard"
                 logoutTo="/auth/admin"
+                links={[
+                    { href: "/admin/dashboard", label: "Appointment" },
+                    { href: "/admin/reports", label: "Laporan" },
+                ]}
             />
             <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
                 {children}

@@ -357,8 +357,8 @@ export default function AdminDashboardPage() {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>Jadwal</TableHead>
-                                    <TableHead>Pemesan</TableHead>
-                                    <TableHead>Layanan</TableHead>
+                                    <TableHead>User</TableHead>
+                                    <TableHead>Service</TableHead>
                                     <TableHead>Status</TableHead>
                                     <TableHead className="text-right">
                                         No.

@@ -6,7 +6,6 @@ import {
     parseBookingInput,
 } from "@/lib/appointments"
 import { sendAppointmentReceipt } from "@/lib/receipt"
-import { getSupabaseClient } from "@/lib/supabase"
 
 export async function GET(request: Request) {
     return withUser(request, async (user) => {
@@ -34,23 +33,6 @@ export async function POST(request: Request) {
 
         try {
             const appointment = await createAppointment(parsed.value)
-
-            const supabase = getSupabaseClient()
-            await supabase
-                .from("users")
-                .update({
-                    name: parsed.value.name,
-                    phone: parsed.value.phone,
-                })
-                .eq("id", user.id)
-                .then(({ error }) => {
-                    if (error) {
-                        console.error(
-                            "[appointment] gagal memperbarui profil",
-                            error.message,
-                        )
-                    }
-                })
 
             const receipt = await sendAppointmentReceipt(appointment)
 

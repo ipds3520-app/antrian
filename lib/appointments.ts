@@ -364,6 +364,58 @@ export async function listAppointments(filters: AppointmentFilters) {
     }
 }
 
+const REPORT_PAGE_SIZE = 1000
+
+/**
+ * Fetches every appointment inside a date range for the admin report. Uses
+ * chunked pagination because PostgREST caps the number of returned rows.
+ */
+export async function listAppointmentsForReport(filters: {
+    from: string
+    to: string
+    service?: string
+}): Promise<AppointmentDto[]> {
+    if (!isValidDateKey(filters.from) || !isValidDateKey(filters.to)) {
+        throw new Error("Rentang tanggal laporan tidak valid")
+    }
+
+    const supabase = getSupabaseClient()
+    const rows: AppointmentRow[] = []
+    let offset = 0
+
+    while (true) {
+        let query = supabase
+            .from("appointments")
+            .select("*")
+            .gte("booked_date", filters.from)
+            .lte("booked_date", filters.to)
+
+        if (filters.service && isService(filters.service)) {
+            query = query.eq("service", filters.service)
+        }
+
+        const { data, error } = await query
+            .order("booked_date", { ascending: true })
+            .order("time", { ascending: true })
+            .order("created_at", { ascending: true })
+            .range(offset, offset + REPORT_PAGE_SIZE - 1)
+
+        if (error) {
+            console.error("[supabase] gagal list laporan", error.message)
+            throw new Error(`Gagal mengambil data laporan: ${error.message}`)
+        }
+
+        const chunk = (data ?? []) as AppointmentRow[]
+        rows.push(...chunk)
+
+        if (chunk.length < REPORT_PAGE_SIZE) break
+
+        offset += REPORT_PAGE_SIZE
+    }
+
+    return rows.map(toAppointmentDto)
+}
+
 export async function getAppointmentById(
     id: string,
 ): Promise<AppointmentDto | null> {

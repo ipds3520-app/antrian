@@ -9,7 +9,7 @@ export interface AuthUser {
 }
 
 export interface UserRow {
-    id: string
+    id: string | number
     created_at: string | Date
     email: string
     name: string | null
@@ -29,7 +29,6 @@ export interface AppointmentRow {
     time: string
     service: string
     phone: string | null
-    auth_user_id?: string | null
     queue_number: number | null
     status: string | null
     completed_at: string | Date | null
