@@ -1,7 +1,5 @@
-import { randomUUID } from "node:crypto"
 import {
     getNowKeys,
-    isPastDateTime,
     isService,
     isValidDateKey,
     isValidTimeKey,
@@ -10,7 +8,11 @@ import {
     serviceLabel,
 } from "@/lib/antrian"
 import { getSupabaseClient } from "@/lib/supabase"
-import type { AppointmentDto, AppointmentRow } from "@/lib/types"
+import type {
+    AppointmentDto,
+    AppointmentRow,
+    AppointmentStatus,
+} from "@/lib/types"
 import {
     isValidEmail,
     isValidPhone,
@@ -145,7 +147,7 @@ export function toAppointmentDto(row: AppointmentRow): AppointmentDto {
     const time = normalizeTimeKey(String(row.time))
 
     return {
-        id: row.id,
+        id: String(row.id),
         createdAt: row.created_at
             ? new Date(row.created_at).toISOString()
             : null,
@@ -157,8 +159,17 @@ export function toAppointmentDto(row: AppointmentRow): AppointmentDto {
         service: row.service,
         serviceLabel: serviceLabel(row.service),
         queueNumber: row.queue_number,
-        status: isPastDateTime(bookedDate, time) ? "expired" : "upcoming",
+        status: normalizeAppointmentStatus(row.status),
+        completedAt: row.completed_at
+            ? new Date(row.completed_at).toISOString()
+            : null,
     }
+}
+
+function normalizeAppointmentStatus(
+    status: string | null | undefined,
+): AppointmentStatus {
+    return status?.toLowerCase() === "selesai" ? "selesai" : "proses"
 }
 
 async function nextQueueNumber(
@@ -167,7 +178,7 @@ async function nextQueueNumber(
 ): Promise<number> {
     const supabase = getSupabaseClient()
     const { data, error } = await supabase
-        .from("appointment")
+        .from("appointments")
         .select("queue_number")
         .eq("booked_date", bookedDate)
         .eq("service", service)
@@ -207,7 +218,7 @@ export async function createAppointment(
 
     if (enforceConflict) {
         const { data: existing, error: existingError } = await supabase
-            .from("appointment")
+            .from("appointments")
             .select("booked_date, time")
             .ilike("email", input.email)
             .eq("booked_date", input.bookedDate)
@@ -235,8 +246,7 @@ export async function createAppointment(
         input.queueNumber ??
         (await nextQueueNumber(input.bookedDate, input.service))
 
-    const newRow: AppointmentRow = {
-        id: randomUUID(),
+    const newRow: Omit<AppointmentRow, "id"> = {
         created_at: new Date().toISOString(),
         name: input.name,
         email: input.email,
@@ -245,10 +255,12 @@ export async function createAppointment(
         time: input.time,
         service: input.service,
         queue_number: queueNumber,
+        status: "proses",
+        completed_at: null,
     }
 
     const { data, error } = await supabase
-        .from("appointment")
+        .from("appointments")
         .insert(newRow)
         .select()
         .single()
@@ -262,69 +274,27 @@ export async function createAppointment(
     return toAppointmentDto(data as AppointmentRow)
 }
 
-export async function updateAppointment(
+export async function setAppointmentStatus(
     id: string,
-    body: unknown,
-): Promise<ParseResult<AppointmentDto> | null> {
-    const existing = await getAppointmentById(id)
-    if (!existing) return null
-
-    const record = asRecord(body)
-    const merged = {
-        name: record.name === undefined ? existing.name : record.name,
-        email: record.email === undefined ? existing.email : record.email,
-        phone: record.phone === undefined ? existing.phone : record.phone,
-        bookedDate:
-            record.bookedDate === undefined
-                ? existing.bookedDate
-                : record.bookedDate,
-        time: record.time === undefined ? existing.time : record.time,
-        service:
-            record.service === undefined ? existing.service : record.service,
-        queueNumber: record.queueNumber,
-    }
-
-    const parsed = validateBooking(merged, { allowPast: true })
-    if (!parsed.ok) return parsed
-
-    const dateChanged = parsed.value.bookedDate !== existing.bookedDate
-    const serviceChanged = parsed.value.service !== existing.service
-
-    let queueNumber = parsed.value.queueNumber
-    if (queueNumber === undefined) {
-        if (dateChanged || serviceChanged) {
-            queueNumber = await nextQueueNumber(
-                parsed.value.bookedDate,
-                parsed.value.service,
-            )
-        } else {
-            queueNumber = existing.queueNumber ?? undefined
-        }
-    }
+    status: AppointmentStatus,
+): Promise<AppointmentDto | null> {
+    const completedAt = status === "selesai" ? new Date().toISOString() : null
 
     const supabase = getSupabaseClient()
     const { data, error } = await supabase
-        .from("appointment")
-        .update({
-            name: parsed.value.name,
-            email: parsed.value.email,
-            phone: parsed.value.phone,
-            booked_date: parsed.value.bookedDate,
-            time: parsed.value.time,
-            service: parsed.value.service,
-            queue_number: queueNumber ?? null,
-        })
+        .from("appointments")
+        .update({ status, completed_at: completedAt })
         .eq("id", id)
         .select()
-        .single()
+        .maybeSingle()
 
-    if (error || !data) {
+    if (error) {
         throw new Error(
-            `Gagal memperbarui appointment: ${error?.message ?? "unknown error"}`,
+            `Gagal memperbarui status appointment: ${error.message}`,
         )
     }
 
-    return { ok: true, value: toAppointmentDto(data as AppointmentRow) }
+    return data ? toAppointmentDto(data as AppointmentRow) : null
 }
 
 export interface AppointmentFilters {
@@ -340,7 +310,7 @@ export interface AppointmentFilters {
 
 export async function listAppointments(filters: AppointmentFilters) {
     const supabase = getSupabaseClient()
-    let query = supabase.from("appointment").select("*", { count: "exact" })
+    let query = supabase.from("appointments").select("*", { count: "exact" })
 
     if (filters.email) {
         query = query.ilike("email", normalizeEmail(filters.email))
@@ -394,12 +364,64 @@ export async function listAppointments(filters: AppointmentFilters) {
     }
 }
 
+const REPORT_PAGE_SIZE = 1000
+
+/**
+ * Fetches every appointment inside a date range for the admin report. Uses
+ * chunked pagination because PostgREST caps the number of returned rows.
+ */
+export async function listAppointmentsForReport(filters: {
+    from: string
+    to: string
+    service?: string
+}): Promise<AppointmentDto[]> {
+    if (!isValidDateKey(filters.from) || !isValidDateKey(filters.to)) {
+        throw new Error("Rentang tanggal laporan tidak valid")
+    }
+
+    const supabase = getSupabaseClient()
+    const rows: AppointmentRow[] = []
+    let offset = 0
+
+    while (true) {
+        let query = supabase
+            .from("appointments")
+            .select("*")
+            .gte("booked_date", filters.from)
+            .lte("booked_date", filters.to)
+
+        if (filters.service && isService(filters.service)) {
+            query = query.eq("service", filters.service)
+        }
+
+        const { data, error } = await query
+            .order("booked_date", { ascending: true })
+            .order("time", { ascending: true })
+            .order("created_at", { ascending: true })
+            .range(offset, offset + REPORT_PAGE_SIZE - 1)
+
+        if (error) {
+            console.error("[supabase] gagal list laporan", error.message)
+            throw new Error(`Gagal mengambil data laporan: ${error.message}`)
+        }
+
+        const chunk = (data ?? []) as AppointmentRow[]
+        rows.push(...chunk)
+
+        if (chunk.length < REPORT_PAGE_SIZE) break
+
+        offset += REPORT_PAGE_SIZE
+    }
+
+    return rows.map(toAppointmentDto)
+}
+
 export async function getAppointmentById(
     id: string,
 ): Promise<AppointmentDto | null> {
     const supabase = getSupabaseClient()
     const { data, error } = await supabase
-        .from("appointment")
+        .from("appointments")
         .select("*")
         .eq("id", id)
         .maybeSingle()
@@ -417,7 +439,7 @@ export async function deleteAppointment(
 ): Promise<AppointmentDto | null> {
     const supabase = getSupabaseClient()
     const { data, error } = await supabase
-        .from("appointment")
+        .from("appointments")
         .delete()
         .eq("id", id)
         .select()

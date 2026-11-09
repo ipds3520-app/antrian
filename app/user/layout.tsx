@@ -16,7 +16,7 @@ export default async function UserLayout({
         <div className="flex min-h-screen flex-col">
             <AppHeader
                 title="Antrian BPS"
-                subtitle="Pemesanan antrian online"
+                subtitle="Antrian online"
                 userName={user.name}
                 homeHref="/user"
                 logoutTo="/auth/login"

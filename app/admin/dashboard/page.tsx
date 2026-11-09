@@ -1,8 +1,13 @@
 "use client"
 
-import { MessageCircle, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react"
+import {
+    CheckCircle2,
+    MessageCircle,
+    RefreshCw,
+    RotateCcw,
+    Trash2,
+} from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
-import { AdminAppointmentDialog } from "@/components/admin-appointment-dialog"
 import { Button } from "@/components/ui/button"
 import {
     Card,
@@ -51,16 +56,16 @@ interface Filters {
 const EMPTY_FILTERS: Filters = { q: "", service: "all", from: "", to: "" }
 
 function statusBadge(status: AppointmentDto["status"]) {
-    if (status === "upcoming") {
+    if (status === "proses") {
         return (
-            <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-                Akan datang
+            <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                Proses
             </span>
         )
     }
 
     return (
-        <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
+        <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
             Selesai
         </span>
     )
@@ -81,8 +86,6 @@ export default function AdminDashboardPage() {
     const [error, setError] = useState("")
     const [notice, setNotice] = useState("")
     const [busyId, setBusyId] = useState<string | null>(null)
-    const [dialogOpen, setDialogOpen] = useState(false)
-    const [editing, setEditing] = useState<AppointmentDto | null>(null)
 
     const load = useCallback(async () => {
         setLoading(true)
@@ -132,16 +135,6 @@ export default function AdminDashboardPage() {
         setOffset(0)
     }
 
-    function openCreate() {
-        setEditing(null)
-        setDialogOpen(true)
-    }
-
-    function openEdit(appointment: AppointmentDto) {
-        setEditing(appointment)
-        setDialogOpen(true)
-    }
-
     async function remove(appointment: AppointmentDto) {
         const confirmed = window.confirm(
             `Hapus appointment ${appointment.name} pada ${formatDateId(appointment.bookedDate)}?`,
@@ -155,6 +148,42 @@ export default function AdminDashboardPage() {
                 method: "DELETE",
             })
             setNotice("Appointment berhasil dihapus.")
+            await load()
+        } catch (error) {
+            setError(
+                handleApiError(error, () =>
+                    window.location.assign("/auth/admin"),
+                ),
+            )
+        } finally {
+            setBusyId(null)
+        }
+    }
+
+    async function toggleStatus(appointment: AppointmentDto) {
+        const nextStatus =
+            appointment.status === "proses" ? "selesai" : "proses"
+
+        const confirmed = window.confirm(
+            nextStatus === "selesai"
+                ? `Tandai appointment ${appointment.name} sebagai selesai?`
+                : `Batalkan status selesai untuk appointment ${appointment.name} dan kembalikan ke proses?`,
+        )
+        if (!confirmed) return
+
+        setBusyId(appointment.id)
+        setNotice("")
+        setError("")
+        try {
+            await apiRequest(`/api/admin/appointments/${appointment.id}`, {
+                method: "PATCH",
+                body: JSON.stringify({ status: nextStatus }),
+            })
+            setNotice(
+                nextStatus === "selesai"
+                    ? "Appointment ditandai selesai."
+                    : "Appointment dikembalikan ke proses.",
+            )
             await load()
         } catch (error) {
             setError(
@@ -219,10 +248,6 @@ export default function AdminDashboardPage() {
                         aria-label="Muat ulang"
                     >
                         <RefreshCw className="h-4 w-4" />
-                    </Button>
-                    <Button onClick={openCreate}>
-                        <Plus className="h-4 w-4" />
-                        Tambah
                     </Button>
                 </div>
             </div>
@@ -332,8 +357,8 @@ export default function AdminDashboardPage() {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>Jadwal</TableHead>
-                                    <TableHead>Pemesan</TableHead>
-                                    <TableHead>Layanan</TableHead>
+                                    <TableHead>User</TableHead>
+                                    <TableHead>Service</TableHead>
                                     <TableHead>Status</TableHead>
                                     <TableHead className="text-right">
                                         No.
@@ -375,7 +400,35 @@ export default function AdminDashboardPage() {
                                             {entry.queueNumber ?? "-"}
                                         </TableCell>
                                         <TableCell>
-                                            <div className="flex justify-end gap-1">
+                                            <div className="flex items-center justify-end gap-1">
+                                                <Button
+                                                    size="sm"
+                                                    variant={
+                                                        entry.status ===
+                                                        "proses"
+                                                            ? "default"
+                                                            : "outline"
+                                                    }
+                                                    disabled={
+                                                        busyId === entry.id
+                                                    }
+                                                    onClick={() =>
+                                                        toggleStatus(entry)
+                                                    }
+                                                >
+                                                    {entry.status ===
+                                                    "proses" ? (
+                                                        <>
+                                                            <CheckCircle2 className="h-4 w-4" />
+                                                            Selesai
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <RotateCcw className="h-4 w-4" />
+                                                            Batalkan
+                                                        </>
+                                                    )}
+                                                </Button>
                                                 <Button
                                                     size="icon"
                                                     variant="ghost"
@@ -388,19 +441,6 @@ export default function AdminDashboardPage() {
                                                     aria-label="Kirim ulang WhatsApp"
                                                 >
                                                     <MessageCircle className="h-4 w-4" />
-                                                </Button>
-                                                <Button
-                                                    size="icon"
-                                                    variant="ghost"
-                                                    disabled={
-                                                        busyId === entry.id
-                                                    }
-                                                    onClick={() =>
-                                                        openEdit(entry)
-                                                    }
-                                                    aria-label="Ubah"
-                                                >
-                                                    <Pencil className="h-4 w-4" />
                                                 </Button>
                                                 <Button
                                                     size="icon"
@@ -451,13 +491,6 @@ export default function AdminDashboardPage() {
                     </Button>
                 </div>
             </div>
-
-            <AdminAppointmentDialog
-                open={dialogOpen}
-                onOpenChange={setDialogOpen}
-                appointment={editing}
-                onSaved={load}
-            />
         </div>
     )
 }

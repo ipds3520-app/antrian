@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto"
 import { cookies } from "next/headers"
 import {
     createSessionToken,
@@ -24,7 +23,7 @@ function normalizeRole(role: string | null): AuthUser["role"] {
 
 export function toAuthUser(row: UserRow): AuthUser {
     return {
-        id: row.id,
+        id: String(row.id),
         email: row.email,
         name: row.name || displayNameFromEmail(row.email),
         role: normalizeRole(row.role),
@@ -68,21 +67,21 @@ export async function findUserById(id: string): Promise<UserRow | null> {
 }
 
 /**
- * Magic-link login creates the user row on first successful verification.
+ * Creates a regular user account with an app-managed bcrypt password.
  */
-export async function findOrCreateUserByEmail(email: string): Promise<UserRow> {
-    const normalizedEmail = normalizeEmail(email)
-    const existing = await findUserByEmail(normalizedEmail)
-    if (existing) return existing
-
+export async function createUserAccount(input: {
+    name: string
+    email: string
+    phone: string
+    passwordHash: string
+}): Promise<UserRow> {
     const supabase = getSupabaseClient()
-    const newUser: UserRow = {
-        id: randomUUID(),
-        email: normalizedEmail,
-        name: displayNameFromEmail(normalizedEmail),
+    const newUser: Omit<UserRow, "id"> = {
+        email: normalizeEmail(input.email),
+        name: input.name,
         role: "user",
-        password: null,
-        phone: null,
+        password: input.passwordHash,
+        phone: input.phone || null,
         created_at: new Date().toISOString(),
     }
 
@@ -93,14 +92,48 @@ export async function findOrCreateUserByEmail(email: string): Promise<UserRow> {
         .single()
 
     if (error) {
-        // Another verification request may have created the same email first.
-        const raced = await findUserByEmail(normalizedEmail)
-        if (raced) return raced
+        // A concurrent signup may have created the same email first.
+        const raced = await findUserByEmail(newUser.email)
+        if (raced) {
+            throw new Error("EMAIL_TAKEN")
+        }
 
         throw new Error(`Gagal membuat pengguna: ${error.message}`)
     }
 
     return data as UserRow
+}
+
+export async function authenticateUser(
+    email: string,
+    password: string,
+): Promise<AuthUser | null> {
+    const row = await findUserByEmail(email)
+    if (!row) return null
+    if (normalizeRole(row.role) !== "user") return null
+    if (!row.password) return null
+
+    const valid = await verifyPassword(password, row.password)
+    return valid ? toAuthUser(row) : null
+}
+
+export async function updateUserProfile(
+    id: string,
+    input: { name: string; phone: string | null },
+): Promise<AuthUser | null> {
+    const supabase = getSupabaseClient()
+    const { data, error } = await supabase
+        .from("users")
+        .update({ name: input.name, phone: input.phone })
+        .eq("id", id)
+        .select()
+        .maybeSingle()
+
+    if (error) {
+        throw new Error(`Gagal memperbarui profil: ${error.message}`)
+    }
+
+    return data ? toAuthUser(data as UserRow) : null
 }
 
 async function getUserFromToken(

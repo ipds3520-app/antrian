@@ -19,7 +19,7 @@ API menerima dua cara autentikasi:
 Authorization: Bearer <session-token>
 ```
 
-Token sesi didapat dari response `request-link` verification atau login admin. Token berlaku sesuai `SESSION_TTL_MINUTES` (default 60 menit). Setelah kedaluwarsa, pengguna harus login ulang.
+Token sesi didapat dari response signup (tidak ada sesi), login pengguna, atau login admin. Token berlaku sesuai `SESSION_TTL_MINUTES` (default 60 menit). Setelah kedaluwarsa, pengguna harus login ulang.
 
 ### Kode status umum
 
@@ -48,72 +48,65 @@ Format `bookedDate`: `YYYY-MM-DD`. Format `time`: `HH:mm` (detik diabaikan).
 
 ## Auth pengguna
 
-### 1. Minta magic link
+### 1. Daftar akun pengguna
 
-`POST /api/auth/request-link`
-
-```json
-{
-    "email": "pengguna@example.com"
-}
-```
-
-Response `200`:
+`POST /api/auth/signup`
 
 ```json
 {
-    "message": "Tautan masuk telah dikirim. Buka email Anda untuk melanjutkan.",
-    "emailSent": true
+    "name": "Pengguna",
+    "email": "pengguna@example.com",
+    "phone": "081234567890",
+    "password": "rahasia123"
 }
 ```
 
-Email dikirim oleh **Supabase Auth** menggunakan template Magic Link. Bila pengiriman gagal, response `502` dengan kode `EMAIL_FAILED`.
-
-Akun dengan `role = 'admin'` ditolak dengan `403` dan kode `ADMIN_USE_PASSWORD`. Admin harus login lewat `POST /api/admin/auth/login`.
-
-### 2. Verifikasi magic link
-
-Email berisi tautan ke:
-
-```text
-GET /api/auth/verify?token_hash=<token-hash>&type=email&redirect=/user
-```
-
-- Di browser: sesi diset lewat cookie, lalu redirect.
-- Untuk aplikasi Android: tambahkan `&format=json` atau kirim header `Accept: application/json` untuk mendapatkan token.
-
-Response JSON `200`:
+Response `201`:
 
 ```json
 {
     "data": {
-        "token": "<session-token>",
-        "expiresAt": "2026-10-30T08:00:00.000Z",
         "user": {
             "id": "uuid",
             "email": "pengguna@example.com",
             "name": "Pengguna",
-            "role": "user",
-            "phone": null
+            "phone": "6281234567890"
         }
     }
 }
 ```
 
-Android juga bisa memanggil endpoint verifikasi secara eksplisit:
+Tidak ada email konfirmasi. Akun langsung aktif dan pengguna harus login secara eksplisit. Email yang sudah terdaftar menghasilkan `409` dengan kode `EMAIL_TAKEN`. Password minimal 8 karakter dan disimpan sebagai hash bcrypt di tabel `users`.
 
-`POST /api/auth/verify`
+### 2. Login pengguna
+
+`POST /api/auth/login`
 
 ```json
 {
-    "token_hash": "<token-hash-dari-email>",
-    "type": "email"
+    "email": "pengguna@example.com",
+    "password": "rahasia123"
 }
 ```
 
-`type` opsional; nilai yang didukung: `email`, `magiclink`, `signup`. Response sama dengan di atas dan cookie juga ikut diset.
+Response `200` sama seperti login admin (token sesi + data pengguna), dan cookie `antrian_session` ikut diset.
 
-> `redirect` hanya menerima path internal (misalnya `/user`). Token sesi aplikasi hanya dikembalikan lewat response JSON endpoint ini.
+Akun dengan `role = 'admin'` tidak dapat login lewat endpoint ini (gunakan `POST /api/admin/auth/login`). Akun lama yang belum memiliki password harus didaftarkan ulang atau diatur password-nya langsung di database.
+
+### 3. Profil pengguna
+
+`GET /api/user/profile` — lihat profil pengguna yang sedang login.
+
+`PATCH /api/user/profile` — ubah `name` dan `phone`:
+
+```json
+{
+    "name": "Nama Baru",
+    "phone": "081234567890"
+}
+```
+
+Email, role, dan password tidak dapat diubah lewat endpoint ini.
 
 ### 3. Cek sesi
 
@@ -219,16 +212,16 @@ Mengembalikan seluruh appointment yang email-nya sama dengan email sesi, terbaru
             "service": "konsultasi_statistik",
             "serviceLabel": "Konsultasi Statistik",
             "queueNumber": 3,
-            "status": "upcoming"
+            "status": "proses"
         }
     ]
 }
 ```
 
-`status` dihitung dari tanggal + waktu:
+`status` dikendalikan oleh admin:
 
-- `upcoming` — belum lewat.
-- `expired` — sudah lewat.
+- `proses` — masih diproses.
+- `selesai` — sudah selesai.
 
 ### Buat appointment
 
@@ -269,7 +262,7 @@ Response `201`:
             "service": "konsultasi_statistik",
             "serviceLabel": "Konsultasi Statistik",
             "queueNumber": 3,
-            "status": "upcoming"
+            "status": "proses"
         },
         "receipt": {
             "message": "Bukti Pendaftaran Antrian BPS...",
@@ -325,7 +318,7 @@ Tanpa filter, endpoint mengembalikan seluruh riwayat dari semua tanggal.
                 "service": "perpustakaan",
                 "serviceLabel": "Perpustakaan",
                 "queueNumber": 1,
-                "status": "upcoming"
+                "status": "proses"
             }
         ],
         "pagination": {
@@ -350,46 +343,24 @@ Tanpa filter, endpoint mengembalikan seluruh riwayat dari semua tanggal.
         "time": "09:00",
         "service": "perpustakaan",
         "queueNumber": 1,
-        "status": "upcoming"
+        "status": "proses"
     }
 }
 ```
 
-### Tambah appointment
+Admin tidak dapat menambah atau mengubah detail appointment. Admin hanya dapat mengubah status.
 
-`POST /api/admin/appointments`
-
-```json
-{
-    "name": "Pengguna",
-    "email": "pengguna@example.com",
-    "phone": "081234567890",
-    "bookedDate": "2026-10-31",
-    "time": "09:00",
-    "service": "perpustakaan",
-    "queueNumber": 1,
-    "sendReceipt": false
-}
-```
-
-- `queueNumber` opsional; jika kosong dihitung otomatis.
-- `sendReceipt` opsional; jika `true`, kuitansi WhatsApp langsung dikirim.
-- Admin boleh menambah appointment untuk tanggal lampau (untuk koreksi data).
-
-### Ubah appointment
+### Ubah status appointment
 
 `PATCH /api/admin/appointments/:id`
 
-Kirim field yang ingin diubah:
-
 ```json
 {
-    "time": "10:00",
-    "service": "konsultasi_statistik"
+    "status": "selesai"
 }
 ```
 
-Jika `bookedDate` atau `service` berubah dan `queueNumber` tidak dikirim, nomor antrian dihitung ulang.
+Nilai yang valid: `proses` atau `selesai`. Saat `selesai`, `completed_at` diisi; saat `proses`, `completed_at` dikosongkan.
 
 ### Hapus appointment
 
@@ -418,27 +389,98 @@ Jika `bookedDate` atau `service` berubah dan `queueNumber` tidak dikirim, nomor 
 }
 ```
 
+### Laporan appointment
+
+`GET /api/admin/reports`
+
+Query parameter:
+
+| Parameter | Nilai | Keterangan |
+| --- | --- | --- |
+| `period` | `day` \| `month` \| `year` \| `custom` | Jenis periode. Default `month`. |
+| `date` | `YYYY-MM-DD` | Dipakai saat `period=day`. |
+| `month` | `YYYY-MM` | Dipakai saat `period=month`. |
+| `year` | `YYYY` | Dipakai saat `period=year`. |
+| `from`, `to` | `YYYY-MM-DD` | Dipakai saat `period=custom`. |
+| `service` | value layanan | Opsional. |
+| `status` | `proses` \| `selesai` | Opsional. |
+
+Contoh:
+
+```text
+GET /api/admin/reports?period=month&month=2026-11&service=perpustakaan
+```
+
+Response `200`:
+
+```json
+{
+    "data": [
+        {
+            "id": "uuid",
+            "bookedDate": "2026-11-03",
+            "time": "09:00",
+            "name": "Pengguna",
+            "email": "pengguna@example.com",
+            "phone": "628123456789",
+            "service": "perpustakaan",
+            "serviceLabel": "Perpustakaan",
+            "queueNumber": 1,
+            "status": "selesai",
+            "createdAt": "2026-11-01T01:00:00.000Z",
+            "completedAt": "2026-11-03T02:00:00.000Z"
+        }
+    ],
+    "summary": {
+        "total": 1,
+        "proses": 0,
+        "selesai": 1,
+        "byService": [
+            {
+                "service": "perpustakaan",
+                "label": "Perpustakaan",
+                "total": 1,
+                "selesai": 1
+            }
+        ]
+    },
+    "range": {
+        "period": "month",
+        "from": "2026-11-01",
+        "to": "2026-11-30"
+    }
+}
+```
+
+Halaman admin `/admin/reports` memakai endpoint ini dan dapat mengekspor hasil sebagai Excel (`.xls`) atau CSV.
+
 ---
 
 ## Contoh alur Android
 
-1. User memasukkan email di aplikasi.
-2. Aplikasi memanggil `POST /api/auth/request-link`.
-3. User membuka email dari Supabase Auth dan menekan tautan masuk.
-4. Aplikasi menangkap `token_hash` dari tautan tersebut, lalu memanggil:
+1. User mengisi form daftar dan aplikasi memanggil:
 
 ```http
-POST /api/auth/verify
+POST /api/auth/signup
 Content-Type: application/json
 
-{ "token_hash": "<token_hash>", "type": "email" }
+{ "name": "Pengguna", "email": "pengguna@example.com", "phone": "081234567890", "password": "rahasia123" }
 ```
 
-5. Simpan `data.token` dan `data.expiresAt`.
-6. Gunakan header berikut untuk semua request pengguna:
+2. Setelah akun dibuat, user login secara eksplisit:
+
+```http
+POST /api/auth/login
+Content-Type: application/json
+
+{ "email": "pengguna@example.com", "password": "rahasia123" }
+```
+
+3. Simpan `data.token` dan `data.expiresAt` dari response.
+4. Gunakan header berikut untuk semua request pengguna:
 
 ```http
 Authorization: Bearer <data.token>
 ```
 
-7. Setelah `expiresAt`, arahkan user untuk meminta magic link baru.
+5. Setelah `expiresAt`, arahkan user untuk login kembali.
